@@ -1,0 +1,11 @@
+[package]
+authors = ["Thomaub <github.thomaub@gmail.com>"]
+edition = "2018"
+name = "redisai"
+version = "0.1.0"
+
+[dependencies]
+ndarray = "0.14.0"
+redis = "0.20.0"
+strum = "0.20"
+strum_macros = "0.20"
