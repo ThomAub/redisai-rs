@@ -3,6 +3,8 @@ authors = ["Thomaub <github.thomaub@gmail.com>"]
 edition = "2018"
 name = "redisai"
 version = "0.1.0"
+description = "A rust client for RedisAI"
+license = "MIT"
 
 [dependencies]
 ndarray = "0.14.0"
