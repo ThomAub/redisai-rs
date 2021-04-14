@@ -1,4 +1,4 @@
-#![feature(min_const_generics)]
+//#![feature(min_const_generics)]
 
 /// Documentation for the tensor interface
 use crate::AIDataType;
@@ -11,21 +11,21 @@ use std::string::ToString;
 use redis::FromRedisValue;
 use redis::{RedisResult, Value};
 
-use ndarray::{Array, Array1, Array2, Array3};
+use ndarray::{Array1, Array2, Array3, ArrayD, Ix1, Ix2, Ix3, IxDyn};
 pub trait ToFromBlob {
-    fn to_blob(&self) -> Vec<u8>;
-    fn from_blob(blob: &[u8], shape: Option<Vec<usize>>) -> Self;
+    fn to_blob(self) -> Vec<u8>;
+    fn from_blob(blob: &[u8], shape: &[usize]) -> Self;
 }
 
 macro_rules! impl_tofrom_blob_vec {
     ($inner_type:ty, $size:expr) => {
         impl ToFromBlob for Vec<$inner_type> {
-            fn to_blob(&self) -> Vec<u8> {
+            fn to_blob(self) -> Vec<u8> {
                 self.iter()
                     .flat_map(|elem| { elem.to_be_bytes().to_vec().into_iter() }.into_iter())
                     .collect::<Vec<u8>>()
             }
-            fn from_blob(blob: &[u8], shape: Option<Vec<usize>>) -> Self {
+            fn from_blob(blob: &[u8], _shape: &[usize]) -> Self {
                 blob.chunks_exact($size)
                     .map(|bytes| {
                         let mut arr = [0u8; $size];
@@ -47,13 +47,13 @@ impl_tofrom_blob_vec! {f32, 4}
 impl_tofrom_blob_vec! {f64, 8}
 
 macro_rules! impl_tofrom_blob_ndarray {
-    ($inner_type:ty, $size:expr, $array:ty) => {
+    ($inner_type:ty, $size:expr, $array:ty, $dim:ty) => {
         impl ToFromBlob for $array {
-            fn to_blob(&self) -> Vec<u8> {
+            fn to_blob(self) -> Vec<u8> {
                 self.into_raw_vec().to_blob()
             }
-            fn from_blob(blob: &[u8], shape: Option<Vec<usize>>) -> Self {
-                let data = blob
+            fn from_blob(blob: &[u8], shape: &[usize]) -> Self {
+                let data: Vec<$inner_type> = blob
                     .chunks_exact($size)
                     .map(|bytes| {
                         let mut arr = [0u8; $size];
@@ -61,43 +61,65 @@ macro_rules! impl_tofrom_blob_ndarray {
                         <$inner_type>::from_be_bytes(arr)
                     })
                     .collect();
-                let sh = match shape {
-                    Some(v) => v.as_slice(),
-                    None => return Err("Should have a shape to use from blob and ndarray"),
-                };
-                $array::from_shape_vec(sh, data)
+
+                let arrd = ArrayD::from_shape_vec(IxDyn(shape), data).unwrap();
+                arrd.into_dimensionality::<$dim>().unwrap()
             }
         }
     };
 }
-// impl_tofrom_blob_ndarray! {i8, 1, Array1}
-// impl_tofrom_blob_ndarray! {i8, 1, Array2}
-// impl_tofrom_blob_ndarray! {i8, 1, Array3}
-// impl_tofrom_blob_ndarray! {i16, 2, Array1}
-// impl_tofrom_blob_ndarray! {i16, 2, Array2}
-// impl_tofrom_blob_ndarray! {i16, 2, Array3}
-impl_tofrom_blob_ndarray! {f32, 4, Array1<f32>}
-impl_tofrom_blob_ndarray! {f32, 4, Array2<f32>}
-impl_tofrom_blob_ndarray! {f32, 4, Array3<f32>}
+
+impl_tofrom_blob_ndarray! {i8, 1, Array1<i8>, Ix1}
+impl_tofrom_blob_ndarray! {i8, 1, Array2<i8>, Ix2}
+impl_tofrom_blob_ndarray! {i8, 1, Array3<i8>, Ix3}
+
+impl_tofrom_blob_ndarray! {i16, 2, Array1<i16>, Ix1}
+impl_tofrom_blob_ndarray! {i16, 2, Array2<i16>, Ix2}
+impl_tofrom_blob_ndarray! {i16, 2, Array3<i16>, Ix3}
+
+impl_tofrom_blob_ndarray! {i32, 4, Array1<i32>, Ix1}
+impl_tofrom_blob_ndarray! {i32, 4, Array2<i32>, Ix2}
+impl_tofrom_blob_ndarray! {i32, 4, Array3<i32>, Ix3}
+
+impl_tofrom_blob_ndarray! {i64, 8, Array1<i64>, Ix1}
+impl_tofrom_blob_ndarray! {i64, 8, Array2<i64>, Ix2}
+impl_tofrom_blob_ndarray! {i64, 8, Array3<i64>, Ix3}
+
+impl_tofrom_blob_ndarray! {u8, 1, Array1<u8>, Ix1}
+impl_tofrom_blob_ndarray! {u8, 1, Array2<u8>, Ix2}
+impl_tofrom_blob_ndarray! {u8, 1, Array3<u8>, Ix3}
+
+impl_tofrom_blob_ndarray! {u16, 2, Array1<u16>, Ix1}
+impl_tofrom_blob_ndarray! {u16, 2, Array2<u16>, Ix2}
+impl_tofrom_blob_ndarray! {u16, 2, Array3<u16>, Ix3}
+
+impl_tofrom_blob_ndarray! {f32, 4, Array1<f32>, Ix1}
+impl_tofrom_blob_ndarray! {f32, 4, Array2<f32>, Ix2}
+impl_tofrom_blob_ndarray! {f32, 4, Array3<f32>, Ix3}
+
+impl_tofrom_blob_ndarray! {f64, 8, Array1<f64>, Ix1}
+impl_tofrom_blob_ndarray! {f64, 8, Array2<f64>, Ix2}
+impl_tofrom_blob_ndarray! {f64, 8, Array3<f64>, Ix3}
+
 #[derive(Debug, PartialEq)]
-pub struct AITensorMeta<const I: usize> {
+pub struct AITensorMeta {
     dtype: AIDataType,
-    shape: [usize; I],
+    shape: Vec<usize>,
 }
 #[derive(Debug, PartialEq)]
-pub struct AITensor<T, const I: usize> {
-    meta: AITensorMeta<I>,
+pub struct AITensor<T> {
+    meta: AITensorMeta,
     blob: T,
 }
 
 // TODO: remove unwrap() ?
-impl<T, const I: usize> FromRedisValue for AITensor<T, I>
+impl<T> FromRedisValue for AITensor<T>
 where
-    T: fmt::Debug + FromRedisValue + ToFromBlob,
+    T: fmt::Debug + ToFromBlob,
 {
     fn from_redis_value(v: &Value) -> RedisResult<Self> {
         let mut it = v.as_sequence().unwrap().iter();
-        let meta: AITensorMeta<I> = match (it.next(), it.next(), it.next(), it.next()) {
+        let meta: AITensorMeta = match (it.next(), it.next(), it.next(), it.next()) {
             (
                 _, //Some(dtype_field),
                 Some(dtype),
@@ -122,7 +144,7 @@ where
                 Some(blob),
             ) => {
                 let blob_bytes = Vec::<u8>::from_redis_value(blob).unwrap();
-                <T>::from_blob(blob_bytes.as_slice(), Some(meta.shape))
+                <T>::from_blob(blob_bytes.as_slice(), &meta.shape)
             }
             _ => {
                 return Err(redis::RedisError::from((
@@ -143,10 +165,10 @@ impl RedisAIClient {
         key: String,
         dtype: AIDataType,
         shape: Vec<usize>,
-        tensor: Vec<T>,
+        tensor: T,
     ) -> RedisResult<()>
     where
-        Vec<T>: ToFromBlob,
+        T: ToFromBlob,
         // Maybe possible with just `to_be_bytes` and no custom Trait but don't know how.
         // TODO: Follow-up on std::num::Trait https://github.com/rust-num/num-traits/pull/103/
     {
@@ -168,19 +190,19 @@ impl RedisAIClient {
             .query(con)?;
         Ok(())
     }
-    pub fn ai_tensorget<T, const I: usize>(
+    pub fn ai_tensorget<T>(
         &self,
         con: &mut redis::Connection,
         key: String,
-    ) -> RedisResult<AITensor<T, I>>
+    ) -> RedisResult<AITensor<T>>
     where
-        T: fmt::Debug + FromRedisValue + ToFromBlob,
+        T: fmt::Debug + ToFromBlob,
     {
         if self.debug {
             println!("AI.TENSORGET {:?} META BLOB", &key);
         }
 
-        let tensor: AITensor<T, I> = redis::cmd("AI.TENSORGET")
+        let tensor: AITensor<T> = redis::cmd("AI.TENSORGET")
             .arg(key)
             .arg("META")
             .arg("BLOB")
@@ -192,7 +214,7 @@ impl RedisAIClient {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ndarray::arr2;
+    use ndarray::{arr2, arr3};
 
     #[test]
     fn ai_tensorset_one_dim_int8() {
@@ -379,14 +401,14 @@ mod tests {
         let aiclient: RedisAIClient = RedisAIClient { debug: false };
         let client = redis::Client::open("redis://127.0.0.1/").unwrap();
         let mut con = client.get_connection().unwrap();
-        let tensor: ndarray::Array2<f32> = arr2(&[[1., 2., 3.], [4., 5., 6.]]);
+        let tensor: ndarray::Array2<f64> = arr2(&[[1., 2., 3.], [4., 5., 6.]]);
         let shape: Vec<usize> = vec![2, 3];
         assert_eq!(
             Ok(()),
             aiclient.ai_tensorset(
                 &mut con,
                 "two_dim_double_ndarray_tensor".to_string(),
-                AIDataType::FLOAT,
+                AIDataType::DOUBLE,
                 shape,
                 tensor.into_raw_vec()
             )
@@ -394,21 +416,60 @@ mod tests {
     }
     #[test]
     fn ai_tensorget_from_2d_ndarray() {
-        // let aiclient: RedisAIClient = RedisAIClient { debug: false };
-        // let client = redis::Client::open("redis://127.0.0.1/").unwrap();
-        // let mut con = client.get_connection().unwrap();
-        let tensor_data: ndarray::Array2<f32> = arr2(&[[1., 2., 3.], [4., 5., 6.]]);
-        dbg!(tensor_data.to_blob());
-        // let shape: Vec<usize> = vec![2, 3];
-        // assert_eq!(
-        //     Ok(AITensor {
-        //         meta: AITensorMeta {
-        //             dtype: AIDataType::DOUBLE,
-        //             shape: shape
-        //         },
-        //         blob: tensor_data
-        //     }),
-        //     aiclient.ai_tensorget(&mut con, "one_dim_double_tensor".to_string())
-        // );
+        let aiclient: RedisAIClient = RedisAIClient { debug: false };
+        let client = redis::Client::open("redis://127.0.0.1/").unwrap();
+        let mut con = client.get_connection().unwrap();
+        let tensor_data: ndarray::Array2<f64> = arr2(&[[1., 2., 3.], [4., 5., 6.]]);
+
+        let shape: Vec<usize> = vec![2, 3];
+        assert_eq!(
+            Ok(AITensor {
+                meta: AITensorMeta {
+                    dtype: AIDataType::DOUBLE,
+                    shape: shape
+                },
+                blob: tensor_data
+            }),
+            aiclient.ai_tensorget(&mut con, "two_dim_double_ndarray_tensor".to_string())
+        );
+    }
+    #[test]
+    fn ai_tensorset_from_3d_ndarray() {
+        let aiclient: RedisAIClient = RedisAIClient { debug: false };
+        let client = redis::Client::open("redis://127.0.0.1/").unwrap();
+        let mut con = client.get_connection().unwrap();
+        let tensor: ndarray::Array3<f32> =
+            arr3(&[[[1., 2., 3.], [4., 5., 6.]], [[1., 2., 3.], [4., 5., 6.]]]);
+        let shape: Vec<usize> = vec![2, 2, 3];
+        assert_eq!(
+            Ok(()),
+            aiclient.ai_tensorset(
+                &mut con,
+                "three_dim_float_ndarray_tensor".to_string(),
+                AIDataType::FLOAT,
+                shape,
+                tensor.into_raw_vec()
+            )
+        );
+    }
+    #[test]
+    fn ai_tensorget_from_3d_ndarray() {
+        let aiclient: RedisAIClient = RedisAIClient { debug: false };
+        let client = redis::Client::open("redis://127.0.0.1/").unwrap();
+        let mut con = client.get_connection().unwrap();
+        let tensor_data: ndarray::Array3<f32> =
+            arr3(&[[[1., 2., 3.], [4., 5., 6.]], [[1., 2., 3.], [4., 5., 6.]]]);
+
+        let shape: Vec<usize> = vec![2, 2, 3];
+        assert_eq!(
+            Ok(AITensor {
+                meta: AITensorMeta {
+                    dtype: AIDataType::FLOAT,
+                    shape: shape
+                },
+                blob: tensor_data
+            }),
+            aiclient.ai_tensorget(&mut con, "three_dim_float_ndarray_tensor".to_string())
+        );
     }
 }
