@@ -7,6 +7,7 @@
 /// ```
 /// use redisai::{RedisAIClient, AIDataType};
 /// use redis::Client;
+///
 /// let aiclient: RedisAIClient = RedisAIClient { debug: false };
 /// let client = Client::open("redis://127.0.0.1/").unwrap();
 /// let mut con = client.get_connection().unwrap();
@@ -21,6 +22,7 @@
 ///          tensor
 ///     );
 /// ```
+
 #[derive(Debug, Clone)]
 pub struct RedisAIClient {
     pub debug: bool,
@@ -39,9 +41,9 @@ pub enum AIDataType {
     UNIT16,
 }
 
-/// Documentation for the config interface
+/// Documentation for the config api
 pub mod config;
-/// Documentation for the info interface
+/// Documentation for the info api
 pub mod info;
-/// Documentation for the tensor interface
+/// Documentation for the tensor api
 pub mod tensor;
