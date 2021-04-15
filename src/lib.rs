@@ -5,40 +5,87 @@
 /// To use the RedisAIClient you need to create a redis-rs client.
 /// [redis-rs](https://docs.rs/redis/0.20.0/redis/index.html)
 /// ```
-/// use redisai::{RedisAIClient, AIDataType};
+/// // Using the redis crate to create a client and connection
 /// use redis::Client;
 ///
-/// let aiclient: RedisAIClient = RedisAIClient { debug: false };
+/// // Importing our custom types
+/// use redisai::{RedisAIClient, AIDataType};
+/// use redisai::tensor::AITensor;
+///
 /// let client = Client::open("redis://127.0.0.1/").unwrap();
 /// let mut con = client.get_connection().unwrap();
 ///
-/// let tensor: Vec<f64> = vec![1., 2., 3., 4.];
-/// let shape: Vec<usize> = vec![4];
+/// let aiclient: RedisAIClient = RedisAIClient { debug: true };
+///
+/// let tensor_data: Vec<u8> = vec![1, 2, 3, 4];
+/// let ai_tensor: AITensor<u8, 1> = AITensor::new([4], tensor_data);
 ///     aiclient.ai_tensorset(
 ///         &mut con,
 ///         "one_dim_double_tensor".to_string(),
-///         AIDataType::DOUBLE,
-///          shape,
-///          tensor
+///          ai_tensor
 ///     );
 /// ```
+use std::convert::From;
 
+/// Main struct of the crate. I will be the support for the implementation of the commands.
 #[derive(Debug, Clone)]
 pub struct RedisAIClient {
+    /// Turn this on to echo the command to stdout
     pub debug: bool,
 }
 
-///Available datatype in this crate
+/// Available datatype in this crate
+/// It's used internally when an AITensor is created to easely serialize the type of the tensor.
 #[derive(Debug, PartialEq, Clone, strum_macros::EnumString, strum_macros::ToString)]
 pub enum AIDataType {
-    FLOAT,
-    DOUBLE,
     INT8,
     INT16,
     INT32,
     INT64,
-    UNIT8,
-    UNIT16,
+    UINT8,
+    UINT16,
+    FLOAT,
+    DOUBLE,
+}
+/// Trait that map an actual rust primitive type to the correct Enum variant.
+/// This is mostly to help for the serialization
+pub trait ToAIDataType {
+    fn to_aidtype() -> AIDataType;
+}
+macro_rules! impl_from_AIDataType {
+    ($inner_type:ty, $dtype:expr) => {
+        impl ToAIDataType for $inner_type {
+            fn to_aidtype() -> AIDataType {
+                $dtype
+            }
+        }
+    };
+}
+
+impl_from_AIDataType! {i8, AIDataType::INT8}
+impl_from_AIDataType! {i16, AIDataType::INT16}
+impl_from_AIDataType! {i32, AIDataType::INT32}
+impl_from_AIDataType! {i64, AIDataType::INT64}
+impl_from_AIDataType! {u8, AIDataType::UINT8}
+impl_from_AIDataType! {u16, AIDataType::UINT16}
+impl_from_AIDataType! {f32, AIDataType::FLOAT}
+impl_from_AIDataType! {f64, AIDataType::DOUBLE}
+
+///Available backend for this crate
+#[derive(Debug, PartialEq, Clone, strum_macros::EnumString, strum_macros::ToString)]
+pub enum Backend {
+    TF,
+    TFLITE,
+    TORCH,
+    ONNX,
+}
+///Available device for this crate
+#[derive(Debug, PartialEq, Clone, strum_macros::EnumString, strum_macros::ToString)]
+pub enum Device {
+    // Default device if not specify
+    CPU,
+    // Default to GPU:0 if used but can be customize to any available gpu
+    GPU(usize),
 }
 
 /// Documentation for the config api
