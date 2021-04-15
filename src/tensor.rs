@@ -116,7 +116,8 @@ where
 }
 
 // TODO: remove unwrap() ?
-impl<T, const S: usize> FromRedisValue for AITensor<T, S>
+// TODO: remove duplicated code for Meta and Tensor
+impl<T, const S: usize> FromRedisValue for AITensorMeta<T, S>
 where
     T: Debug,
     Vec<T>: ToFromBlob,
@@ -154,12 +155,29 @@ where
                 )))
             }
         };
+        Ok(meta)
+    }
+}
+impl<T, const S: usize> FromRedisValue for AITensor<T, S>
+where
+    T: Debug,
+    Vec<T>: ToFromBlob,
+{
+    fn from_redis_value(v: &Value) -> RedisResult<Self> {
+        let it = v.as_sequence().unwrap().iter();
+        let meta_part_iter = it.clone().take(4);
+        let meta_part = Value::Bulk(
+            meta_part_iter
+                .map(|elem| elem.clone())
+                .collect::<Vec<Value>>(),
+        );
+        let meta: AITensorMeta<T, S> = AITensorMeta::<T, S>::from_redis_value(&meta_part).unwrap();
 
-        let blob = match (it.next(), it.next()) {
-            (
-                _, // Some(blob_field),
-                Some(blob),
-            ) => {
+        let mut blob_part_iter = it.skip(4);
+        let blob = match (blob_part_iter.next(), blob_part_iter.next()) {
+            (Some(blob_field), Some(blob)) => {
+                dbg!(&blob_field);
+                dbg!(&blob);
                 let blob_bytes = Vec::<u8>::from_redis_value(blob).unwrap();
                 blob_bytes
             }
@@ -186,6 +204,34 @@ where
 }
 
 impl RedisAIClient {
+    /// The [AI.TENSORSET](https://oss.redislabs.com/redisai/commands/#aitensorset) command
+    /// It stores a tensor as the value of a key.
+    ///
+    /// **Note**: The implementation differ form the raw AI.TENSORSET command.
+    /// It's currently not possible to create an uninitialized tensor.
+    ///
+    /// Only tensors with actual data can be sent to redis so BLOB sub command is always called.
+    ///
+    /// Also the VALUES sub command is not used.
+    ///
+    /// From RedisAI docs:
+    /// > While it is possible to set the tensor using binary data or numerical values,
+    /// > it is recommended that you use the BLOB option.
+    /// > It requires fewer resources and performs better compared to specifying the values discretely.
+    /// ```
+    /// use redis;
+    /// use redisai::RedisAIClient;
+    /// use redisai::tensor::{ToFromBlob,AITensor};
+    ///
+    /// let aiclient: RedisAIClient = RedisAIClient { debug: true };
+    /// let client = redis::Client::open("redis://127.0.0.1/").unwrap();
+    /// let mut con = client.get_connection().unwrap();
+    ///
+    /// let tensor_data: Vec<i8> = vec![1, 2, 3, 127];
+    /// let shape: [usize; 1] = [4];
+    /// let ai_tensor: AITensor<i8, 1> = AITensor::new(shape, tensor_data.to_blob());
+    /// aiclient.ai_tensorset(&mut con, "example_one_dim_i8_tensor".to_string(), ai_tensor);
+    /// ```
     pub fn ai_tensorset<T, const S: usize>(
         &self,
         con: &mut redis::Connection,
@@ -220,24 +266,60 @@ impl RedisAIClient {
             .query(con)?;
         Ok(())
     }
+    /// The [AI.TENSORGET](https://oss.redislabs.com/redisai/commands/#aitensorget) command
+    /// It returns a tensor stored as key's value.
+    ///
+    /// If meta_only is true:
+    ///
+    ///     only the AITensorMeta of the AITensor is correct. The blob field is an empty Vec
+    ///
+    /// If meta_only is false:
+    ///     the complete AITensor is returned and in the BLOB format, VALUES format not supported.
+    ///     _It's not possible to only retrieve the BLOB because we want the META to enforce the return type_
+    ///
+    /// ```
+    /// use redis;
+    /// use redisai::RedisAIClient;
+    /// use redisai::tensor::{ToFromBlob,AITensor};
+    ///
+    /// let aiclient: RedisAIClient = RedisAIClient { debug: true };
+    /// let client = redis::Client::open("redis://127.0.0.1/").unwrap();
+    /// let mut con = client.get_connection().unwrap();
+    ///
+    /// let tensor_data: Vec<i8> = vec![1, 2, 3, 127];
+    /// let shape: [usize; 1] = [4];
+    /// let ai_tensor: AITensor<i8, 1> = AITensor::new(shape, tensor_data.to_blob());
+    /// aiclient.ai_tensorset(&mut con, "example_one_dim_i8_tensor".to_string(), ai_tensor);
+    ///
+    /// let ai_tensor: AITensor<i8, 1> = aiclient.ai_tensorget(&mut con, "example_one_dim_i8_tensor".to_string(), false).unwrap();
+    /// println!("{:?}", ai_tensor);
+    /// ```
     pub fn ai_tensorget<T, const S: usize>(
         &self,
         con: &mut redis::Connection,
         key: String,
+        meta_only: bool,
     ) -> RedisResult<AITensor<T, S>>
     where
         T: Debug,
         Vec<T>: ToFromBlob,
     {
-        if self.debug {
-            println!("AI.TENSORGET {:?} META BLOB", &key);
-        }
-
-        let tensor: AITensor<T, S> = redis::cmd("AI.TENSORGET")
-            .arg(key)
-            .arg("META")
-            .arg("BLOB")
-            .query(con)?;
+        let mut debug_command = format!("AI.TENSORGET {} META", &key);
+        let tensor = if meta_only {
+            println!("{}", debug_command);
+            let meta: AITensorMeta<T, S> =
+                redis::cmd("AI.TENSORGET").arg(key).arg("META").query(con)?;
+            AITensor { meta, blob: vec![] }
+        } else {
+            debug_command = debug_command + "BLOB";
+            println!("{}", debug_command);
+            let tensor: AITensor<T, S> = redis::cmd("AI.TENSORGET")
+                .arg(key)
+                .arg("META")
+                .arg("BLOB")
+                .query(con)?;
+            tensor
+        };
         Ok(tensor)
     }
 }

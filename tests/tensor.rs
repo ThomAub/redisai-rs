@@ -27,7 +27,23 @@ fn ai_tensorget_one_dim_int8() {
     let expected_ai_tensor: AITensor<i8, 1> = AITensor::new(shape, tensor_data.to_blob());
 
     let ai_tensor: AITensor<i8, 1> = aiclient
-        .ai_tensorget(&mut con, "one_dim_i8_tensor".to_string())
+        .ai_tensorget(&mut con, "one_dim_i8_tensor".to_string(), false)
+        .unwrap();
+
+    assert_eq!(expected_ai_tensor, ai_tensor);
+}
+#[test]
+fn ai_tensorget_one_dim_int8_meta_only() {
+    let aiclient: RedisAIClient = RedisAIClient { debug: true };
+    let client = redis::Client::open("redis://127.0.0.1/").unwrap();
+    let mut con = client.get_connection().unwrap();
+
+    let tensor_data: Vec<i8> = vec![];
+    let shape: [usize; 1] = [4];
+    let expected_ai_tensor: AITensor<i8, 1> = AITensor::new(shape, tensor_data.to_blob());
+
+    let ai_tensor: AITensor<i8, 1> = aiclient
+        .ai_tensorget(&mut con, "one_dim_i8_tensor".to_string(), true)
         .unwrap();
 
     assert_eq!(expected_ai_tensor, ai_tensor);
@@ -42,7 +58,7 @@ fn ai_tensorget_wrong_shape() {
     let mut con = client.get_connection().unwrap();
 
     let _: AITensor<i8, 2> = aiclient
-        .ai_tensorget(&mut con, "one_dim_i8_tensor".to_string())
+        .ai_tensorget(&mut con, "one_dim_i8_tensor".to_string(), true)
         .unwrap();
 }
 #[test]
@@ -72,7 +88,22 @@ fn ai_tensorget_three_dim_int32() {
 
     assert_eq!(
         Ok(ai_tensor),
-        aiclient.ai_tensorget(&mut con, "three_dim_i32_tensor".to_string())
+        aiclient.ai_tensorget(&mut con, "three_dim_i32_tensor".to_string(), false)
+    );
+}
+#[test]
+fn ai_tensorget_three_dim_int32_meta_only() {
+    let aiclient: RedisAIClient = RedisAIClient { debug: false };
+    let client = redis::Client::open("redis://127.0.0.1/").unwrap();
+    let mut con = client.get_connection().unwrap();
+
+    let tensor_data: Vec<i32> = vec![];
+    let shape: [usize; 3] = [2, 2, 3];
+    let ai_tensor: AITensor<i32, 3> = AITensor::new(shape, tensor_data.to_blob());
+
+    assert_eq!(
+        Ok(ai_tensor),
+        aiclient.ai_tensorget(&mut con, "three_dim_i32_tensor".to_string(), true)
     );
 }
 #[test]
@@ -102,7 +133,7 @@ fn ai_tensorget_one_dim_float32() {
 
     assert_eq!(
         Ok(ai_tensor),
-        aiclient.ai_tensorget(&mut con, "one_dim_f32_tensor".to_string())
+        aiclient.ai_tensorget(&mut con, "one_dim_f32_tensor".to_string(), false)
     );
 }
 #[test]
@@ -132,9 +163,10 @@ fn ai_tensorget_three_dim_float32() {
 
     assert_eq!(
         Ok(ai_tensor),
-        aiclient.ai_tensorget(&mut con, "three_dim_f32_tensor".to_string())
+        aiclient.ai_tensorget(&mut con, "three_dim_f32_tensor".to_string(), false)
     );
 }
+
 #[test]
 fn ai_tensorset_one_dim_float64() {
     let aiclient: RedisAIClient = RedisAIClient { debug: false };
@@ -162,7 +194,7 @@ fn ai_tensorget_one_dim_float64() {
 
     assert_eq!(
         Ok(ai_tensor),
-        aiclient.ai_tensorget(&mut con, "one_dim_double_tensor".to_string())
+        aiclient.ai_tensorget(&mut con, "one_dim_double_tensor".to_string(), false)
     );
 }
 #[test]
@@ -195,7 +227,7 @@ fn ai_tensorget_from_2d_ndarray() {
 
     assert_eq!(
         Ok(ai_tensor),
-        aiclient.ai_tensorget(&mut con, "two_dim_double_ndarray_tensor".to_string())
+        aiclient.ai_tensorget(&mut con, "two_dim_double_ndarray_tensor".to_string(), false)
     );
 }
 #[test]
@@ -234,6 +266,10 @@ fn ai_tensorget_from_3d_ndarray() {
 
     assert_eq!(
         Ok(ai_tensor),
-        aiclient.ai_tensorget(&mut con, "three_dim_float_ndarray_tensor".to_string())
+        aiclient.ai_tensorget(
+            &mut con,
+            "three_dim_float_ndarray_tensor".to_string(),
+            false
+        )
     );
 }
