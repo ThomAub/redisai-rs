@@ -31,28 +31,20 @@ redisai = "0.1.1"
 ## Usage
 
 ```rust
-use redisai::{RedisAIClient, AIDataType};
-use redis::Client;
+use redis;
+
+use redisai::RedisAIClient;
+use redisai::tensor::{ToFromBlob,AITensor};
 
 let aiclient: RedisAIClient = RedisAIClient { debug: true };
-
-let client = Client::open("redis://127.0.0.1/").unwrap();
+let client = redis::Client::open("redis://127.0.0.1/").unwrap();
 let mut con = client.get_connection().unwrap();
 
-let tensor: Vec<f64> = vec![1., 2., 3., 4.];
-let shape: Vec<usize> = vec![4];
-    aiclient.ai_tensorset(
-        &mut con,
-        "one_dim_double_tensor".to_string(),
-        AIDataType::DOUBLE,
-        shape,
-        tensor);
+let tensor_data: Vec<i8> = vec![1, 2, 3, 127];
+let shape: [usize; 1] = [4];
+let ai_tensor: AITensor<i8, 1> = AITensor::new(shape, tensor_data.to_blob());
+
+aiclient.ai_tensorset(&mut con, "example_one_dim_i8_tensor".to_string(), ai_tensor);
+
+let ai_tensor: AITensor<i8, 1> = aiclient.ai_tensorget(&mut con, "example_one_dim_i8_tensor".to_string(), false).unwrap();
 ```
-
-## TODOs
-
-- [] add some unit tests
-- [] update github workflow for integration test ( currently failling because no active redis in workflow)
-- [] add more support for ndarray in `tensor.rs`
-- [] add support for `AI.MODEL` command
-- [] add support for `AI.SCRIPT` command

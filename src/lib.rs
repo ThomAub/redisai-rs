@@ -1,3 +1,4 @@
+#![crate_name = "redisai"]
 //! The `redisai-rs` provide a rust client to interact with [RedisAI](https://oss.redislabs.com/redisai/).
 //!
 //! Checkout the documentation for API details and examples of the Client.
@@ -21,7 +22,7 @@
 /// let ai_tensor: AITensor<u8, 1> = AITensor::new([4], tensor_data);
 ///     aiclient.ai_tensorset(
 ///         &mut con,
-///         "one_dim_double_tensor".to_string(),
+///         "one_dim_vec_tensor".to_string(),
 ///          ai_tensor
 ///     );
 /// ```
@@ -35,7 +36,6 @@ pub struct RedisAIClient {
 }
 
 /// Available datatype in this crate
-/// It's used internally when an AITensor is created to easely serialize the type of the tensor.
 #[derive(Debug, PartialEq, Clone, strum_macros::EnumString, strum_macros::ToString)]
 pub enum AIDataType {
     INT8,
@@ -47,8 +47,7 @@ pub enum AIDataType {
     FLOAT,
     DOUBLE,
 }
-/// Trait that map an actual rust primitive type to the correct Enum variant.
-/// This is mostly to help for the serialization
+/// Trait for converting rust primitive type to AIDataType.
 pub trait ToAIDataType {
     fn to_aidtype() -> AIDataType;
 }
@@ -71,7 +70,7 @@ impl_from_AIDataType! {u16, AIDataType::UINT16}
 impl_from_AIDataType! {f32, AIDataType::FLOAT}
 impl_from_AIDataType! {f64, AIDataType::DOUBLE}
 
-///Available backend for this crate
+/// Available backend for this crate
 #[derive(Debug, PartialEq, Clone, strum_macros::EnumString, strum_macros::ToString)]
 pub enum Backend {
     TF,
@@ -79,7 +78,7 @@ pub enum Backend {
     TORCH,
     ONNX,
 }
-///Available device for this crate
+/// Available device for this crate
 #[derive(Debug, PartialEq, Clone, strum_macros::EnumString, strum_macros::ToString)]
 pub enum Device {
     // Default device if not specify
@@ -88,9 +87,12 @@ pub enum Device {
     GPU(usize),
 }
 
-/// Documentation for the config api
+/// Configuration directives at run-time for RedisAI module
 pub mod config;
-/// Documentation for the info api
+/// General module information or information about the execution a model
 pub mod info;
-/// Documentation for the tensor api
+
+/// Upload and launch model execution
+pub mod model;
+/// Upload and retrieve tensors
 pub mod tensor;
