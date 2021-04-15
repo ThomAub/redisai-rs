@@ -5,3 +5,4 @@ Cargo.lock
 *.tflite
 *.pt
 *.txt
+.DS_store
