@@ -15,15 +15,13 @@ jobs:
   container-job:
     # Containers must run in Linux based operating systems
     runs-on: ubuntu-latest
-    # Docker Hub image that `container-job` executes in
-    container: redislabs/redisai:edge-cpu
 
     # Service containers to run with `container-job`
     services:
       # Label used to access the service container
       redis:
         # Docker Hub image
-        image: redis
+        image: redislabs/redisai:edge-cpu
         # Set health checks to wait until redis has started
         options: >-
           --health-cmd "redis-cli ping"
@@ -34,15 +32,6 @@ jobs:
     steps:
       - name: Check out repository code
         uses: actions/checkout@v2
-      
-      - name: get rust toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-      - uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --release --all-features
 
       - name: Build the code
         run: cargo build --verbose
