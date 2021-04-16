@@ -1,6 +1,11 @@
 /// Documentation for the model api
 use crate::{Backend, Device, RedisAIClient};
 use redis::RedisResult;
+
+use std::fs::File;
+use std::io::prelude::Read;
+use std::path::Path;
+/// The Model metadata
 #[derive(Debug, PartialEq)]
 pub struct AIModelMeta {
     pub backend: Backend,
@@ -30,31 +35,7 @@ pub struct AIModelMeta {
     /// One or more names of the model's input nodes (applicable only for TensorFlow models)
     pub inputs: Option<Vec<String>>,
     /// One or more names of the model's output nodes (applicable only for TensorFlow models)
-    pub outputs: Option<String>,
-}
-
-impl AIModelMeta {
-    pub fn new(
-        backend: Backend,
-        device: Device,
-        tag: Option<String>,
-        batchsize: isize,
-        min_batchsize: isize,
-        min_batch_timeout: isize,
-        inputs: Option<Vec<String>>,
-        outputs: Option<String>,
-    ) -> Self {
-        Self {
-            backend,
-            device,
-            tag,
-            batchsize,
-            min_batchsize,
-            min_batch_timeout,
-            inputs,
-            outputs,
-        }
-    }
+    pub outputs: Option<Vec<String>>,
 }
 
 impl Default for AIModelMeta {
@@ -71,11 +52,22 @@ impl Default for AIModelMeta {
         }
     }
 }
-
+/// The Model represents a computation graph by one of the supported DL/ML framework backends
 #[derive(Debug, PartialEq, Default)]
 pub struct AIModel {
+    /// The Model metadata
     pub meta: AIModelMeta,
+    /// The model blob representation
     pub blob: Vec<u8>,
+}
+
+impl AIModel {
+    pub fn new_from_file(meta: AIModelMeta, path: &Path) -> RedisResult<AIModel> {
+        let mut file = File::open(path)?;
+        let mut buffer = Vec::<u8>::new();
+        file.read_to_end(&mut buffer).unwrap();
+        Ok(AIModel { meta, blob: buffer })
+    }
 }
 
 impl RedisAIClient {
@@ -83,32 +75,97 @@ impl RedisAIClient {
         &self,
         con: &mut redis::Connection,
         key: String,
-        backend: Backend,
-        device: Device,
-        model: Vec<u8>,
-        tag: Option<String>,
-        batchsize: Option<isize>,
-        min_batchsize: Option<isize>,
-        min_batch_timeout: Option<isize>,
-        inputs: Option<String>,
-        outputs: Option<String>,
+        model: AIModel,
     ) -> RedisResult<()> {
-        let backend_str = backend.to_string();
-        let device_str = device.to_string();
+        let backend_str = model.meta.backend.to_string();
+        let device_str = model.meta.device.to_string();
+
+        let mut debug_command = format!("AI.MODELSET {}", &key);
+        let mut args_command: Vec<String> = vec![];
+
+        if let Some(tag) = model.meta.tag {
+            debug_command = debug_command + " TAG " + &tag;
+            args_command.append(&mut vec!["TAG".to_string(), tag]);
+        }
+        // Handling the batchsize and the min_batchsize and the min_batch_timeout
+        match (
+            model.meta.batchsize,
+            model.meta.min_batchsize,
+            model.meta.min_batch_timeout,
+        ) {
+            (0, 0, 0) => {}
+            (0, 0, t) => {
+                panic!("MINBATCHTIMEOUT t={} should only be set where both BATCHSIZE and MINBATCHSIZE are greater than 0.", t)
+            }
+            (n, 0, 0) => {
+                debug_command = debug_command + " BATCHSIZE " + &n.to_string();
+                args_command.append(&mut vec!["BATCHSIZE".to_string(), n.to_string()]);
+            }
+            (n, m, 0) if m > n => {
+                panic!(
+                    "BATCHSIZE n={} should be greater than MINBATCHSIZE m={}",
+                    n, m
+                )
+            }
+            (n, m, 0) => {
+                debug_command = debug_command + " BATCHSIZE " + &n.to_string();
+                args_command.append(&mut vec!["BATCHSIZE".to_string(), n.to_string()]);
+
+                debug_command = debug_command + " MINBATCHSIZE " + &m.to_string();
+                args_command.append(&mut vec!["MINBATCHSIZE".to_string(), m.to_string()]);
+            }
+            (n, m, t) if m > n => {
+                panic!(
+                    "Even with MINBATCHTIMEOUT t={}, BATCHSIZE n={} should be greater than MINBATCHSIZE m={}",
+                    t, n, m
+                )
+            }
+            (n, m, t) => {
+                debug_command = debug_command + " BATCHSIZE " + &n.to_string();
+                args_command.append(&mut vec!["BATCHSIZE".to_string(), n.to_string()]);
+
+                debug_command = debug_command + " MINBATCHSIZE " + &m.to_string();
+                args_command.append(&mut vec!["MINBATCHSIZE".to_string(), m.to_string()]);
+
+                debug_command = debug_command + " MINBATCHTIMEOUT " + &t.to_string();
+                args_command.append(&mut vec!["MINBATCHTIMEOUT".to_string(), t.to_string()]);
+            }
+        }
+
+        // Handling the inputs outputs only for only for TensorFlow models
+        // TODO: check for Tflite ?
+        match model.meta.backend {
+            Backend::TF | Backend::TFLITE => {
+                if let Some(inputs) = model.meta.inputs {
+                    let inputs_joined = inputs.join(" ");
+                    debug_command = debug_command + " INPUTS " + &inputs_joined;
+                    args_command.append(&mut vec!["INPUTS".to_string(), inputs_joined]);
+                } else {
+                    panic!("Trying to use a TF or TFlite model without setting INPUTS tensors")
+                }
+
+                if let Some(outputs) = model.meta.outputs {
+                    let outputs_joined = outputs.join(" ");
+                    debug_command = debug_command + " INPUTS " + &outputs_joined;
+                    args_command.append(&mut vec!["INPUTS".to_string(), outputs_joined]);
+                } else {
+                    panic!("Trying to use a TF or TFlite model without setting OUTPUTS tensors")
+                }
+            }
+            _ => {}
+        }
 
         if self.debug {
-            println!(
-                "AI.MODELSET {} {} {} BLOB {:#04X?}",
-                &key, &backend_str, &device_str, model
-            );
+            println!("{} BLOB ", &debug_command); //{:#04X?} &model.blob
         }
 
         redis::cmd("AI.MODELSET")
             .arg(key)
             .arg(backend_str)
             .arg(device_str)
+            .arg(args_command)
             .arg("BLOB")
-            .arg(model)
+            .arg(model.blob)
             .query(con)?;
         Ok(())
     }
@@ -118,65 +175,97 @@ impl RedisAIClient {
 mod tests {
     use super::*;
     use crate::{Backend, Device, RedisAIClient};
-    use std::fs::File;
-    use std::io::prelude::Read;
 
     #[test]
-    fn ai_model_TF_default() {
-        // let ai_modelmeta = AIModelMeta {
-        //     backend: Backend::TF,
-        //     ..Default::default()
-        // };
-        // let key = "HAHA";
-        // let meta = false;
-        // let mut command = format!("AI.TENSORGET {} MET", &key);
-        // if meta {
-        // } else {
-        //     command = command + "BLOB"; // ).to_string();
-        // };
-        // dbg!(&command);
-        // let ai_model = AIModel {
-        //     meta: ai_modelmeta,
-        //     ..Default::default()
-        // };
-        // dbg!(ai_model);
-    }
-    #[test]
-    fn ai_modelset_() {
-        let aiclient: RedisAIClient = RedisAIClient { debug: false };
+    fn ai_model_ONNX_default() {
+        let aiclient: RedisAIClient = RedisAIClient { debug: true };
         let client = redis::Client::open("redis://127.0.0.1/").unwrap();
         let mut con = client.get_connection().unwrap();
 
-        let mut file = File::open("tests/testdata/pt-minimal.pt").unwrap();
-        let mut buffer = Vec::<u8>::new();
-        file.read_to_end(&mut buffer).unwrap();
+        let ai_modelmeta = AIModelMeta {
+            backend: Backend::ONNX,
+            ..Default::default()
+        };
+        let model_path = Path::new("tests/testdata/findsquare.onnx");
+        let key = "model:findsquare:onnx:".to_string();
 
-        //println!("{:?}", buffer);
-        // let key = "minimal_torch".to_string();
-        // let backend = Backend::TORCH;
-        // let device = Device::CPU;
-        // let model = buffer;
-        // let tag = None;
-        // let batchsize = None;
-        // let min_batchsize = None;
-        // let min_batch_timeout = None;
-        // let inputs = None;
-        // let outputs = None;
-        // aiclient
-        //     .ai_modelset(
-        //         &mut con,
-        //         key,
-        //         backend,
-        //         device,
-        //         model,
-        //         tag,
-        //         batchsize,
-        //         min_batchsize,
-        //         min_batch_timeout,
-        //         inputs,
-        //         outputs,
-        //     )
-        //     .unwrap();
-        // assert_eq!((), ())
+        let ai_model = AIModel::new_from_file(ai_modelmeta, &model_path).unwrap();
+
+        aiclient.ai_modelset(&mut con, key, ai_model).unwrap();
+    }
+    #[test]
+    fn ai_model_ONNX_default_with_tag() {
+        let aiclient: RedisAIClient = RedisAIClient { debug: true };
+        let client = redis::Client::open("redis://127.0.0.1/").unwrap();
+        let mut con = client.get_connection().unwrap();
+
+        let ai_modelmeta = AIModelMeta {
+            backend: Backend::ONNX,
+            tag: Some("V1.3".to_string()),
+            ..Default::default()
+        };
+        let model_path = Path::new("tests/testdata/findsquare.onnx");
+        let key = "model:findsquare:onnx:tag".to_string();
+
+        let ai_model = AIModel::new_from_file(ai_modelmeta, &model_path).unwrap();
+
+        aiclient.ai_modelset(&mut con, key, ai_model).unwrap();
+    }
+    #[test]
+    fn ai_model_ONNX_default_with_batchsize() {
+        let aiclient: RedisAIClient = RedisAIClient { debug: true };
+        let client = redis::Client::open("redis://127.0.0.1/").unwrap();
+        let mut con = client.get_connection().unwrap();
+
+        let ai_modelmeta = AIModelMeta {
+            backend: Backend::ONNX,
+            batchsize: 3,
+            ..Default::default()
+        };
+        let model_path = Path::new("tests/testdata/findsquare.onnx");
+        let key = "model:findsquare:onnx:batchsize:3".to_string();
+
+        let ai_model = AIModel::new_from_file(ai_modelmeta, &model_path).unwrap();
+
+        aiclient.ai_modelset(&mut con, key, ai_model).unwrap();
+    }
+    #[test]
+    fn ai_model_ONNX_default_with_batchsize_minbatchsize() {
+        let aiclient: RedisAIClient = RedisAIClient { debug: true };
+        let client = redis::Client::open("redis://127.0.0.1/").unwrap();
+        let mut con = client.get_connection().unwrap();
+
+        let ai_modelmeta = AIModelMeta {
+            backend: Backend::ONNX,
+            batchsize: 3,
+            min_batchsize: 2,
+            ..Default::default()
+        };
+        let model_path = Path::new("tests/testdata/findsquare.onnx");
+        let key = "model:findsquare:onnx:batchsize:3min_batchsize:2".to_string();
+
+        let ai_model = AIModel::new_from_file(ai_modelmeta, &model_path).unwrap();
+
+        aiclient.ai_modelset(&mut con, key, ai_model).unwrap();
+    }
+    #[test]
+    #[should_panic(expected = "BATCHSIZE n=3 should be greater than MINBATCHSIZE m=5")]
+    fn ai_model_ONNX_default_with_batchsize_wrong_minbatchsize() {
+        let aiclient: RedisAIClient = RedisAIClient { debug: true };
+        let client = redis::Client::open("redis://127.0.0.1/").unwrap();
+        let mut con = client.get_connection().unwrap();
+
+        let ai_modelmeta = AIModelMeta {
+            backend: Backend::ONNX,
+            batchsize: 3,
+            min_batchsize: 5,
+            ..Default::default()
+        };
+        let model_path = Path::new("tests/testdata/findsquare.onnx");
+        let key = "model:findsquare:onnx:batchsize:3min_batchsize:2".to_string();
+
+        let ai_model = AIModel::new_from_file(ai_modelmeta, &model_path).unwrap();
+
+        aiclient.ai_modelset(&mut con, key, ai_model).unwrap();
     }
 }
