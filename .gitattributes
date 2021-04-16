@@ -1,0 +1,7 @@
+tests/testdata filter=lfs diff=lfs merge=lfs -text
+tests/testdata/script.txt filter=lfs diff=lfs merge=lfs -text
+tests/testdata/boston.onnx filter=lfs diff=lfs merge=lfs -text
+tests/testdata/findsquare.onnx filter=lfs diff=lfs merge=lfs -text
+tests/testdata/graph.pb filter=lfs diff=lfs merge=lfs -text
+tests/testdata/mnist_model_quant.tflite filter=lfs diff=lfs merge=lfs -text
+tests/testdata/pt-minimal.pt filter=lfs diff=lfs merge=lfs -text

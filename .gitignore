@@ -1,8 +1,4 @@
 /target
 Cargo.lock
-*.onnx
-*.pb
-*.tflite
-*.pt
-*.txt
+*.onnx *.pb *.tflite *.pt *.txt
 .DS_store
