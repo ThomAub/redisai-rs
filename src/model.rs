@@ -123,18 +123,18 @@ mod tests {
 
     #[test]
     fn ai_model_TF_default() {
-        let ai_modelmeta = AIModelMeta {
-            backend: Backend::TF,
-            ..Default::default()
-        };
-        let key = "HAHA";
-        let meta = false;
-        let mut command = format!("AI.TENSORGET {} MET", &key);
-        if meta {
-        } else {
-            command = command + "BLOB"; // ).to_string();
-        };
-        dbg!(&command);
+        // let ai_modelmeta = AIModelMeta {
+        //     backend: Backend::TF,
+        //     ..Default::default()
+        // };
+        // let key = "HAHA";
+        // let meta = false;
+        // let mut command = format!("AI.TENSORGET {} MET", &key);
+        // if meta {
+        // } else {
+        //     command = command + "BLOB"; // ).to_string();
+        // };
+        // dbg!(&command);
         // let ai_model = AIModel {
         //     meta: ai_modelmeta,
         //     ..Default::default()
@@ -152,31 +152,31 @@ mod tests {
         file.read_to_end(&mut buffer).unwrap();
 
         //println!("{:?}", buffer);
-        let key = "minimal_torch".to_string();
-        let backend = Backend::TORCH;
-        let device = Device::CPU;
-        let model = buffer;
-        let tag = None;
-        let batchsize = None;
-        let min_batchsize = None;
-        let min_batch_timeout = None;
-        let inputs = None;
-        let outputs = None;
-        aiclient
-            .ai_modelset(
-                &mut con,
-                key,
-                backend,
-                device,
-                model,
-                tag,
-                batchsize,
-                min_batchsize,
-                min_batch_timeout,
-                inputs,
-                outputs,
-            )
-            .unwrap();
-        assert_eq!((), ())
+        // let key = "minimal_torch".to_string();
+        // let backend = Backend::TORCH;
+        // let device = Device::CPU;
+        // let model = buffer;
+        // let tag = None;
+        // let batchsize = None;
+        // let min_batchsize = None;
+        // let min_batch_timeout = None;
+        // let inputs = None;
+        // let outputs = None;
+        // aiclient
+        //     .ai_modelset(
+        //         &mut con,
+        //         key,
+        //         backend,
+        //         device,
+        //         model,
+        //         tag,
+        //         batchsize,
+        //         min_batchsize,
+        //         min_batch_timeout,
+        //         inputs,
+        //         outputs,
+        //     )
+        //     .unwrap();
+        // assert_eq!((), ())
     }
 }

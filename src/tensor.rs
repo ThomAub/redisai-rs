@@ -76,7 +76,7 @@ where
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct AITensorMeta<T, const S: usize> {
     pub dtype: AIDataType,
     pub shape: [usize; S],
@@ -95,7 +95,7 @@ where
         }
     }
 }
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct AITensor<T, const S: usize> {
     pub meta: AITensorMeta<T, S>,
     pub blob: Vec<u8>,
@@ -269,13 +269,11 @@ impl RedisAIClient {
     /// The [AI.TENSORGET](https://oss.redislabs.com/redisai/commands/#aitensorget) command
     /// It returns a tensor stored as key's value.
     ///
-    /// If meta_only is true:
+    /// meta_only is true -> only the AITensorMeta of the AITensor is correct. The blob field is an empty Vec
     ///
-    ///     only the AITensorMeta of the AITensor is correct. The blob field is an empty Vec
-    ///
-    /// If meta_only is false:
-    ///     the complete AITensor is returned and in the BLOB format, VALUES format not supported.
-    ///     _It's not possible to only retrieve the BLOB because we want the META to enforce the return type_
+    /// meta_only is false -> the complete AITensor is returned and in the BLOB format.
+    /// VALUES format not supported.
+    /// _It's not possible to only retrieve the BLOB because we want the META to enforce the return type_
     ///
     /// ```
     /// use redis;
@@ -311,7 +309,7 @@ impl RedisAIClient {
                 redis::cmd("AI.TENSORGET").arg(key).arg("META").query(con)?;
             AITensor { meta, blob: vec![] }
         } else {
-            debug_command = debug_command + "BLOB";
+            debug_command = debug_command + " BLOB";
             println!("{}", debug_command);
             let tensor: AITensor<T, S> = redis::cmd("AI.TENSORGET")
                 .arg(key)
