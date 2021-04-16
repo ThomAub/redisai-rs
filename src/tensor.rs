@@ -11,6 +11,7 @@ use redis::FromRedisValue;
 use redis::{RedisResult, Value};
 
 use ndarray::{Array, Dimension};
+/// Trait to tansform a generic container type like a Vec<f32> or ndarray to a Vec<u8> used for BLOB
 pub trait ToFromBlob {
     fn to_blob(self) -> Vec<u8>;
     fn from_blob(blob: &[u8], shape: &[usize]) -> Self;
@@ -76,9 +77,12 @@ where
     }
 }
 
+/// The representation of the metadata of our tensor.
 #[derive(Debug, PartialEq, Clone)]
 pub struct AITensorMeta<T, const S: usize> {
+    /// The tensor's data type
     pub dtype: AIDataType,
+    /// The tensor's shape and S represent the dimension
     pub shape: [usize; S],
     phantom: PhantomData<T>,
 }
@@ -95,9 +99,12 @@ where
         }
     }
 }
+/// The tensor that represents an n-dimensional array of values
 #[derive(Debug, PartialEq, Clone)]
 pub struct AITensor<T, const S: usize> {
+    /// The metadata of the tensor
     pub meta: AITensorMeta<T, S>,
+    /// The blob representation of the tensor values
     pub blob: Vec<u8>,
 }
 
