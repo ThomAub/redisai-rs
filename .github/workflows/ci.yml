@@ -35,14 +35,14 @@ jobs:
     steps:
       - name: Check out repository code
         uses: actions/checkout@v2
-        with: 
+        with:
           lfs: true
 
       - name: Build the code
         run: cargo build --verbose
 
       - name: Run tests
-        run: cargo test --verbose
+        run: cargo test --all-features --verbose
         env:
           # The hostname used to communicate with the Redis service container
           REDIS_HOST: localhost

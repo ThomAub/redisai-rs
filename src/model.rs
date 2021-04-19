@@ -5,6 +5,17 @@ use redis::RedisResult;
 use std::fs::File;
 use std::io::prelude::Read;
 use std::path::Path;
+
+#[cfg(feature = "tokio-comp")]
+use tokio::fs::File;
+#[cfg(feature = "tokio-comp")]
+use tokio::io::AsyncReadExt;
+
+#[cfg(feature = "async-std-comp")]
+use async_std::fs::File;
+#[cfg(feature = "async-std-comp")]
+use async_std::prelude::*;
+
 /// The Model metadata
 #[derive(Debug, PartialEq)]
 pub struct AIModelMeta {
@@ -62,10 +73,27 @@ pub struct AIModel {
 }
 
 impl AIModel {
+    /// Read a model file from a path
     pub fn new_from_file(meta: AIModelMeta, path: &Path) -> RedisResult<AIModel> {
         let mut file = File::open(path)?;
         let mut buffer = Vec::<u8>::new();
         file.read_to_end(&mut buffer).unwrap();
+        Ok(AIModel { meta, blob: buffer })
+    }
+    /// Async Read a model file from a path
+    #[cfg(feature = "tokio-comp")]
+    pub async fn new_from_file_tokio(meta: AIModelMeta, path: &Path) -> RedisResult<AIModel> {
+        let mut file = tokio::fs::File::open(path).await?;
+        let mut buffer = Vec::<u8>::new();
+        file.read_to_end(&mut buffer).await?;
+        Ok(AIModel { meta, blob: buffer })
+    }
+    /// Async Read a model file from a path
+    #[cfg(feature = "async-std-comp")]
+    pub async fn new_from_file_tokio(meta: AIModelMeta, path: &Path) -> RedisResult<AIModel> {
+        let mut file = async_std::fs::File::open(path).await?;
+        let mut buffer = Vec::<u8>::new();
+        file.read_to_end(&mut buffer).await?;
         Ok(AIModel { meta, blob: buffer })
     }
 }
