@@ -174,10 +174,10 @@ impl RedisAIClient {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Backend, Device, RedisAIClient};
+    use crate::{Backend, RedisAIClient};
 
     #[test]
-    fn ai_model_ONNX_default() {
+    fn ai_model_onnx_default() {
         let aiclient: RedisAIClient = RedisAIClient { debug: true };
         let client = redis::Client::open("redis://127.0.0.1/").unwrap();
         let mut con = client.get_connection().unwrap();
@@ -194,7 +194,7 @@ mod tests {
         aiclient.ai_modelset(&mut con, key, ai_model).unwrap();
     }
     #[test]
-    fn ai_model_ONNX_default_with_tag() {
+    fn ai_model_onnx_default_with_tag() {
         let aiclient: RedisAIClient = RedisAIClient { debug: true };
         let client = redis::Client::open("redis://127.0.0.1/").unwrap();
         let mut con = client.get_connection().unwrap();
@@ -212,7 +212,7 @@ mod tests {
         aiclient.ai_modelset(&mut con, key, ai_model).unwrap();
     }
     #[test]
-    fn ai_model_ONNX_default_with_batchsize() {
+    fn ai_model_onnx_default_with_batchsize() {
         let aiclient: RedisAIClient = RedisAIClient { debug: true };
         let client = redis::Client::open("redis://127.0.0.1/").unwrap();
         let mut con = client.get_connection().unwrap();
@@ -230,7 +230,7 @@ mod tests {
         aiclient.ai_modelset(&mut con, key, ai_model).unwrap();
     }
     #[test]
-    fn ai_model_ONNX_default_with_batchsize_minbatchsize() {
+    fn ai_model_onnx_default_with_batchsize_minbatchsize() {
         let aiclient: RedisAIClient = RedisAIClient { debug: true };
         let client = redis::Client::open("redis://127.0.0.1/").unwrap();
         let mut con = client.get_connection().unwrap();
@@ -250,7 +250,7 @@ mod tests {
     }
     #[test]
     #[should_panic(expected = "BATCHSIZE n=3 should be greater than MINBATCHSIZE m=5")]
-    fn ai_model_ONNX_default_with_batchsize_wrong_minbatchsize() {
+    fn ai_model_onnx_default_with_batchsize_wrong_minbatchsize() {
         let aiclient: RedisAIClient = RedisAIClient { debug: true };
         let client = redis::Client::open("redis://127.0.0.1/").unwrap();
         let mut con = client.get_connection().unwrap();
@@ -259,6 +259,29 @@ mod tests {
             backend: Backend::ONNX,
             batchsize: 3,
             min_batchsize: 5,
+            ..Default::default()
+        };
+        let model_path = Path::new("tests/testdata/findsquare.onnx");
+        let key = "model:findsquare:onnx:batchsize:3min_batchsize:2".to_string();
+
+        let ai_model = AIModel::new_from_file(ai_modelmeta, &model_path).unwrap();
+
+        aiclient.ai_modelset(&mut con, key, ai_model).unwrap();
+    }
+    #[test]
+    #[should_panic(
+        expected = "MINBATCHTIMEOUT t=5 should only be set where both BATCHSIZE and MINBATCHSIZE are greater than 0"
+    )]
+    fn ai_model_onnx_default_with_batchsize_wrong_min_batch_timeout() {
+        let aiclient: RedisAIClient = RedisAIClient { debug: true };
+        let client = redis::Client::open("redis://127.0.0.1/").unwrap();
+        let mut con = client.get_connection().unwrap();
+
+        let ai_modelmeta = AIModelMeta {
+            backend: Backend::ONNX,
+            batchsize: 0,
+            min_batchsize: 0,
+            min_batch_timeout: 5,
             ..Default::default()
         };
         let model_path = Path::new("tests/testdata/findsquare.onnx");
