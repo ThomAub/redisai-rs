@@ -10,6 +10,7 @@ use std::string::ToString;
 use redis::FromRedisValue;
 use redis::{RedisResult, Value};
 
+#[cfg(feature = "ndar")]
 use ndarray::{Array, Dimension};
 /// Trait to tansform a generic container type like a Vec<f32> or ndarray to a Vec<u8> used for BLOB
 pub trait ToFromBlob {
@@ -47,6 +48,7 @@ impl_tofrom_blob_vec! {u16}
 impl_tofrom_blob_vec! {f32}
 impl_tofrom_blob_vec! {f64}
 
+#[cfg(feature = "ndar")]
 impl<S, D, const N: usize> From<Array<S, D>> for AITensor<S, N>
 where
     S: Debug + ToAIDataType,
@@ -210,6 +212,28 @@ where
     }
 }
 
+fn modelset_cmd_build<T, const S: usize>(key: String, tensor: &AITensor<T, S>) -> Vec<String> {
+    let mut args_command: Vec<String> = vec![key];
+    args_command.push(tensor.meta.dtype.to_string());
+    args_command.append(
+        &mut tensor
+            .meta
+            .shape
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<String>>(),
+    );
+    args_command
+}
+fn modelget_cmd_build(key: String, meta_only: bool) -> Vec<String> {
+    let mut args_command: Vec<String> = vec![key, "META".to_string()];
+    if meta_only {
+    } else {
+        args_command.push("BLOB".to_string());
+    };
+    args_command
+}
+
 impl RedisAIClient {
     /// The [AI.TENSORSET](https://oss.redislabs.com/redisai/commands/#aitensorset) command
     /// It stores a tensor as the value of a key.
@@ -250,26 +274,14 @@ impl RedisAIClient {
         // Maybe possible with just `to_be_bytes` and no custom Trait but don't know how.
         // TODO: Follow-up on std::num::Trait https://github.com/rust-num/num-traits/pull/103/
     {
-        let dtype_str = tensor.meta.dtype.to_string();
-        let shape_str = tensor
-            .meta
-            .shape
-            .iter()
-            .map(|s| s.to_string())
-            .collect::<Vec<String>>();
-        let blob = tensor.blob;
+        let args = modelset_cmd_build(key, &tensor);
         if self.debug {
-            println!(
-                "AI.TENSORSET {} {} {:?} BLOB {:#04X?}",
-                &key, &dtype_str, &shape_str, &blob
-            );
+            println!("AI.TENSORSET {:?} BLOB {:#04X?}", args, &tensor.blob);
         }
         redis::cmd("AI.TENSORSET")
-            .arg(key)
-            .arg(dtype_str)
-            .arg(shape_str)
+            .arg(args)
             .arg("BLOB")
-            .arg(blob)
+            .arg(tensor.blob)
             .query(con)?;
         Ok(())
     }
@@ -309,30 +321,79 @@ impl RedisAIClient {
         T: Debug,
         Vec<T>: ToFromBlob,
     {
-        let mut debug_command = format!("AI.TENSORGET {} META", &key);
+        let args = modelget_cmd_build(key, meta_only);
         let tensor = if meta_only {
-            println!("{}", debug_command);
-            let meta: AITensorMeta<T, S> =
-                redis::cmd("AI.TENSORGET").arg(key).arg("META").query(con)?;
+            if self.debug {
+                println!("AI.TENSORGET {:?}", args)
+            }
+            let meta: AITensorMeta<T, S> = redis::cmd("AI.TENSORGET").arg(args).query(con)?;
             AITensor { meta, blob: vec![] }
         } else {
-            debug_command = debug_command + " BLOB";
-            println!("{}", debug_command);
-            let tensor: AITensor<T, S> = redis::cmd("AI.TENSORGET")
-                .arg(key)
-                .arg("META")
-                .arg("BLOB")
-                .query(con)?;
+            let tensor: AITensor<T, S> = redis::cmd("AI.TENSORGET").arg(args).query(con)?;
             tensor
         };
         Ok(tensor)
     }
 }
 
+#[cfg(feature = "aio")]
+impl RedisAIClient {
+    pub async fn ai_tensorset_async<T, const S: usize>(
+        &self,
+        con: &mut redis::aio::Connection,
+        key: String,
+        tensor: AITensor<T, S>,
+    ) -> RedisResult<()>
+    where
+        T: Debug,
+    {
+        let args = modelset_cmd_build(key, &tensor);
+        if self.debug {
+            println!("AI.TENSORSET {:?} BLOB {:#04X?}", args, &tensor.blob);
+        }
+        redis::cmd("AI.TENSORSET")
+            .arg(args)
+            .arg("BLOB")
+            .arg(tensor.blob)
+            .query_async(con)
+            .await?;
+        Ok(())
+    }
+    pub async fn ai_tensorget_async<T, const S: usize>(
+        &self,
+        con: &mut redis::aio::Connection,
+        key: String,
+        meta_only: bool,
+    ) -> RedisResult<AITensor<T, S>>
+    where
+        T: Debug,
+        Vec<T>: ToFromBlob,
+    {
+        let args = modelget_cmd_build(key, meta_only);
+        let tensor = if meta_only {
+            if self.debug {
+                println!("AI.TENSORGET {:?}", args)
+            }
+            let meta: AITensorMeta<T, S> = redis::cmd("AI.TENSORGET")
+                .arg(args)
+                .query_async(con)
+                .await?;
+            AITensor { meta, blob: vec![] }
+        } else {
+            let tensor: AITensor<T, S> = redis::cmd("AI.TENSORGET")
+                .arg(args)
+                .query_async(con)
+                .await?;
+            tensor
+        };
+        Ok(tensor)
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::AIDataType;
+    #[cfg(feature = "ndar")]
     use ndarray::{arr1, arr2, arr3};
     #[test]
     fn ai_tensor() {
@@ -406,6 +467,7 @@ mod tests {
         assert_eq!(expected_tensor, ai_tensor)
     }
     #[test]
+    #[cfg(feature = "ndar")]
     fn one_dim_ndarray_f32_ai_tensor() {
         let tensor: ndarray::Array1<f32> = arr1(&[1., 2., 3., 255.]);
 
@@ -423,6 +485,7 @@ mod tests {
         assert_eq!(expected_tensor, ai_tensor)
     }
     #[test]
+    #[cfg(feature = "ndar")]
     fn one_dim_ndarray_f64_ai_tensor() {
         let tensor_data: Vec<f64> = vec![1., 2., 3., 255.];
         let shape: [usize; 1] = [4];
@@ -443,6 +506,7 @@ mod tests {
         assert_eq!(expected_tensor, ai_tensor)
     }
     #[test]
+    #[cfg(feature = "ndar")]
     fn two_dim_ndarray_f32_ai_tensor() {
         let tensor: ndarray::Array2<f32> = arr2(&[[1., 2., 3., 255.], [1., 2., 3., 255.]]);
 
@@ -464,11 +528,13 @@ mod tests {
     }
     #[test]
     #[should_panic(expected = "impossible to convert a 2 ndarray into an 3 AITensor")]
+    #[cfg(feature = "ndar")]
     fn two_dim_ndarray_f32_ai_tensor_go_wrong() {
         let tensor: ndarray::Array2<f32> = arr2(&[[1., 2., 3., 255.], [1., 2., 3., 255.]]);
         let _ai_tensor: AITensor<f32, 3> = tensor.into();
     }
     #[test]
+    #[cfg(feature = "ndar")]
     fn three_dim_ndarray_f32_ai_tensor() {
         let tensor: ndarray::Array3<f32> = arr3(&[
             [[1., 2.], [3., 255.]],

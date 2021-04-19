@@ -69,7 +69,72 @@ impl AIModel {
         Ok(AIModel { meta, blob: buffer })
     }
 }
+fn modelset_cmd_build(key: String, model: &AIModel) -> Vec<String> {
+    let mut args_command: Vec<String> = vec![key];
+    args_command.push(model.meta.backend.to_string());
+    args_command.push(model.meta.device.to_string());
 
+    if let Some(tag) = &model.meta.tag {
+        args_command.append(&mut vec!["TAG".to_string(), tag.to_string()]);
+    }
+    // Handling the batchsize and the min_batchsize and the min_batch_timeout
+    match (
+        model.meta.batchsize,
+        model.meta.min_batchsize,
+        model.meta.min_batch_timeout,
+    ) {
+        (0, 0, 0) => {}
+        (0, 0, t) => {
+            panic!("MINBATCHTIMEOUT t={} should only be set where both BATCHSIZE and MINBATCHSIZE are greater than 0.", t)
+        }
+        (n, 0, 0) => {
+            args_command.append(&mut vec!["BATCHSIZE".to_string(), n.to_string()]);
+        }
+        (n, m, 0) if m > n => {
+            panic!(
+                "BATCHSIZE n={} should be greater than MINBATCHSIZE m={}",
+                n, m
+            )
+        }
+        (n, m, 0) => {
+            args_command.append(&mut vec!["BATCHSIZE".to_string(), n.to_string()]);
+            args_command.append(&mut vec!["MINBATCHSIZE".to_string(), m.to_string()]);
+        }
+        (n, m, t) if m > n => {
+            panic!(
+                    "Even with MINBATCHTIMEOUT t={}, BATCHSIZE n={} should be greater than MINBATCHSIZE m={}",
+                    t, n, m
+                )
+        }
+        (n, m, t) => {
+            args_command.append(&mut vec!["BATCHSIZE".to_string(), n.to_string()]);
+            args_command.append(&mut vec!["MINBATCHSIZE".to_string(), m.to_string()]);
+            args_command.append(&mut vec!["MINBATCHTIMEOUT".to_string(), t.to_string()]);
+        }
+    }
+
+    // Handling the inputs outputs only for only for TensorFlow models
+    // TODO: check for Tflite ?
+    match model.meta.backend {
+        Backend::TF | Backend::TFLITE => {
+            if let Some(inputs) = &model.meta.inputs {
+                let inputs_joined = inputs.join(" ");
+                args_command.append(&mut vec!["INPUTS".to_string(), inputs_joined]);
+            } else {
+                panic!("Trying to use a TF or TFlite model without setting INPUTS tensors")
+            }
+
+            if let Some(outputs) = &model.meta.outputs {
+                let outputs_joined = outputs.join(" ");
+                args_command.append(&mut vec!["INPUTS".to_string(), outputs_joined]);
+            } else {
+                panic!("Trying to use a TF or TFlite model without setting OUTPUTS tensors")
+            }
+        }
+        _ => {}
+    }
+    args_command
+}
 impl RedisAIClient {
     pub fn ai_modelset(
         &self,
@@ -77,96 +142,31 @@ impl RedisAIClient {
         key: String,
         model: AIModel,
     ) -> RedisResult<()> {
-        let backend_str = model.meta.backend.to_string();
-        let device_str = model.meta.device.to_string();
-
-        let mut debug_command = format!("AI.MODELSET {}", &key);
-        let mut args_command: Vec<String> = vec![];
-
-        if let Some(tag) = model.meta.tag {
-            debug_command = debug_command + " TAG " + &tag;
-            args_command.append(&mut vec!["TAG".to_string(), tag]);
-        }
-        // Handling the batchsize and the min_batchsize and the min_batch_timeout
-        match (
-            model.meta.batchsize,
-            model.meta.min_batchsize,
-            model.meta.min_batch_timeout,
-        ) {
-            (0, 0, 0) => {}
-            (0, 0, t) => {
-                panic!("MINBATCHTIMEOUT t={} should only be set where both BATCHSIZE and MINBATCHSIZE are greater than 0.", t)
-            }
-            (n, 0, 0) => {
-                debug_command = debug_command + " BATCHSIZE " + &n.to_string();
-                args_command.append(&mut vec!["BATCHSIZE".to_string(), n.to_string()]);
-            }
-            (n, m, 0) if m > n => {
-                panic!(
-                    "BATCHSIZE n={} should be greater than MINBATCHSIZE m={}",
-                    n, m
-                )
-            }
-            (n, m, 0) => {
-                debug_command = debug_command + " BATCHSIZE " + &n.to_string();
-                args_command.append(&mut vec!["BATCHSIZE".to_string(), n.to_string()]);
-
-                debug_command = debug_command + " MINBATCHSIZE " + &m.to_string();
-                args_command.append(&mut vec!["MINBATCHSIZE".to_string(), m.to_string()]);
-            }
-            (n, m, t) if m > n => {
-                panic!(
-                    "Even with MINBATCHTIMEOUT t={}, BATCHSIZE n={} should be greater than MINBATCHSIZE m={}",
-                    t, n, m
-                )
-            }
-            (n, m, t) => {
-                debug_command = debug_command + " BATCHSIZE " + &n.to_string();
-                args_command.append(&mut vec!["BATCHSIZE".to_string(), n.to_string()]);
-
-                debug_command = debug_command + " MINBATCHSIZE " + &m.to_string();
-                args_command.append(&mut vec!["MINBATCHSIZE".to_string(), m.to_string()]);
-
-                debug_command = debug_command + " MINBATCHTIMEOUT " + &t.to_string();
-                args_command.append(&mut vec!["MINBATCHTIMEOUT".to_string(), t.to_string()]);
-            }
-        }
-
-        // Handling the inputs outputs only for only for TensorFlow models
-        // TODO: check for Tflite ?
-        match model.meta.backend {
-            Backend::TF | Backend::TFLITE => {
-                if let Some(inputs) = model.meta.inputs {
-                    let inputs_joined = inputs.join(" ");
-                    debug_command = debug_command + " INPUTS " + &inputs_joined;
-                    args_command.append(&mut vec!["INPUTS".to_string(), inputs_joined]);
-                } else {
-                    panic!("Trying to use a TF or TFlite model without setting INPUTS tensors")
-                }
-
-                if let Some(outputs) = model.meta.outputs {
-                    let outputs_joined = outputs.join(" ");
-                    debug_command = debug_command + " INPUTS " + &outputs_joined;
-                    args_command.append(&mut vec!["INPUTS".to_string(), outputs_joined]);
-                } else {
-                    panic!("Trying to use a TF or TFlite model without setting OUTPUTS tensors")
-                }
-            }
-            _ => {}
-        }
-
+        let args = modelset_cmd_build(key, &model);
         if self.debug {
-            println!("{} BLOB ", &debug_command); //{:#04X?} &model.blob
+            format!("AI.MODELSET {:?}", &args);
         }
-
         redis::cmd("AI.MODELSET")
-            .arg(key)
-            .arg(backend_str)
-            .arg(device_str)
-            .arg(args_command)
+            .arg(args)
             .arg("BLOB")
             .arg(model.blob)
             .query(con)?;
+        Ok(())
+    }
+}
+#[cfg(feature = "aio")]
+impl RedisAIClient {
+    pub async fn ai_modelset_async(
+        &self,
+        con: &mut redis::aio::Connection,
+        key: String,
+        model: AIModel,
+    ) -> RedisResult<()> {
+        let args = modelset_cmd_build(key, &model);
+        if self.debug {
+            format!("AI.MODELSET {:?}", &args);
+        }
+        redis::cmd("AI.MODELSET").arg(args).query_async(con).await?;
         Ok(())
     }
 }
