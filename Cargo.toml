@@ -32,7 +32,7 @@ async-trait = { version = "0.1.24", optional = true }
 
 [features]
 default = ["aio"]
-aio = ["futures", "tokio", "redis/aio", "redis/async-std-comp", "redis/tokio-comp"]
+aio = ["futures", "tokio", "redis/aio", "redis/tokio-comp"]
 async-std-comp = ["aio", "async-std"]
 tokio-comp = ["aio", "tokio", "tokio/net"]
 nda = ["ndarray"]

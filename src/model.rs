@@ -194,7 +194,12 @@ impl RedisAIClient {
         if self.debug {
             format!("AI.MODELSET {:?}", &args);
         }
-        redis::cmd("AI.MODELSET").arg(args).query_async(con).await?;
+        redis::cmd("AI.MODELSET")
+            .arg(args)
+            .arg("BLOB")
+            .arg(model.blob)
+            .query_async(con)
+            .await?;
         Ok(())
     }
 }
