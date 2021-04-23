@@ -207,11 +207,11 @@ impl RedisAIClient {
     pub async fn ai_modelscan_async(
         &self,
         con: &mut redis::aio::Connection,
-    ) -> RedisResult<Vec<String>> {
+    ) -> RedisResult<Vec<Vec<String>>> {
         if self.debug {
             format!("AI._MODELSCAN");
         }
-        let models: Vec<String> = redis::cmd("AI._MODELSCAN").query_async(con).await?;
+        let models: Vec<Vec<String>> = redis::cmd("AI._MODELSCAN").query_async(con).await?;
         Ok(models)
     }
 }
