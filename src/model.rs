@@ -176,6 +176,13 @@ impl RedisAIClient {
             .query(con)?;
         Ok(())
     }
+    pub fn ai_modelscan(&self, con: &mut redis::Connection) -> RedisResult<Vec<Vec<String>>> {
+        if self.debug {
+            format!("AI._MODELSCAN");
+        }
+        let models: Vec<Vec<String>> = redis::cmd("AI._MODELSCAN").query(con)?;
+        Ok(models)
+    }
 }
 #[cfg(feature = "aio")]
 impl RedisAIClient {
@@ -196,6 +203,16 @@ impl RedisAIClient {
             .query_async(con)
             .await?;
         Ok(())
+    }
+    pub async fn ai_modelscan_async(
+        &self,
+        con: &mut redis::aio::Connection,
+    ) -> RedisResult<Vec<String>> {
+        if self.debug {
+            format!("AI._MODELSCAN");
+        }
+        let models: Vec<String> = redis::cmd("AI._MODELSCAN").query_async(con).await?;
+        Ok(models)
     }
 }
 
@@ -318,5 +335,31 @@ mod tests {
         let ai_model = AIModel::new_from_file(ai_modelmeta, &model_path).unwrap();
 
         aiclient.ai_modelset(&mut con, key, ai_model).unwrap();
+    }
+    #[test]
+    fn ai_model_scan() {
+        let aiclient: RedisAIClient = RedisAIClient { debug: true };
+        let client = redis::Client::open("redis://127.0.0.1/").unwrap();
+        let mut con = client.get_connection().unwrap();
+
+        let model_path = Path::new("tests/testdata/findsquare.onnx");
+
+        let ai_modelmeta_1 = AIModelMeta::default();
+        let key_1 = "model:scan:1".to_string();
+
+        let ai_model_1 = AIModel::new_from_file(ai_modelmeta_1, &model_path).unwrap();
+        aiclient.ai_modelset(&mut con, key_1, ai_model_1).unwrap();
+
+        let ai_modelmeta = AIModelMeta {
+            tag: Some("V100".to_string()),
+            ..Default::default()
+        };
+        let ai_model_1 = AIModel::new_from_file(ai_modelmeta, &model_path).unwrap();
+        let key_2 = "model:scan:2".to_string();
+
+        aiclient.ai_modelset(&mut con, key_2, ai_model_1).unwrap();
+
+        let _models = aiclient.ai_modelscan(&mut con).unwrap();
+        // assert_eq!(models, vec!["model:scan:1", "", "model:scan:2", "v100"])
     }
 }

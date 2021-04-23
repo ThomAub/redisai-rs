@@ -184,9 +184,7 @@ where
 
         let mut blob_part_iter = it.skip(4);
         let blob = match (blob_part_iter.next(), blob_part_iter.next()) {
-            (Some(blob_field), Some(blob)) => {
-                dbg!(&blob_field);
-                dbg!(&blob);
+            (Some(_blob_field), Some(blob)) => {
                 let blob_bytes = Vec::<u8>::from_redis_value(blob).unwrap();
                 blob_bytes
             }
@@ -199,7 +197,6 @@ where
         };
         let data_size: usize =
             meta.shape.iter().fold(1, |acc, elem| acc * elem) * std::mem::size_of::<T>();
-        dbg!(&data_size);
         // Sanity check for the data
         if blob.len() != data_size {
             return Err(redis::RedisError::from((
