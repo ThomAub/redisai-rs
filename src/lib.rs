@@ -2,7 +2,6 @@
 //! The `redisai-rs` provide a rust client to interact with [RedisAI](https://oss.redislabs.com/redisai/).
 //!
 //! Checkout the documentation for API details and examples of the Client.
-
 /// To use the RedisAIClient you need to create a redis-rs client.
 /// [redis-rs](https://docs.rs/redis/0.20.0/redis/index.html)
 /// ```
@@ -26,8 +25,8 @@
 ///          ai_tensor
 ///     );
 /// ```
+use serde::{Deserialize, Serialize};
 use std::convert::From;
-
 /// Main struct of the crate. I will be the support for the implementation of the commands.
 #[derive(Debug, Clone)]
 pub struct RedisAIClient {
@@ -36,7 +35,15 @@ pub struct RedisAIClient {
 }
 
 /// Available datatype in this crate
-#[derive(Debug, PartialEq, Clone, strum_macros::EnumString, strum_macros::ToString)]
+#[derive(
+    Debug,
+    Deserialize,
+    Serialize,
+    PartialEq,
+    Clone,
+    strum_macros::EnumString,
+    strum_macros::ToString,
+)]
 pub enum AIDataType {
     INT8,
     INT16,
@@ -71,7 +78,15 @@ impl_from_AIDataType! {f32, AIDataType::FLOAT}
 impl_from_AIDataType! {f64, AIDataType::DOUBLE}
 
 /// Available backend for this crate
-#[derive(Debug, PartialEq, Clone, strum_macros::EnumString, strum_macros::ToString)]
+#[derive(
+    Debug,
+    Deserialize,
+    Serialize,
+    PartialEq,
+    Clone,
+    strum_macros::EnumString,
+    strum_macros::ToString,
+)]
 pub enum Backend {
     TF,
     TFLITE,
@@ -79,7 +94,15 @@ pub enum Backend {
     ONNX,
 }
 /// Available device for this crate
-#[derive(Debug, PartialEq, Clone, strum_macros::EnumString, strum_macros::ToString)]
+#[derive(
+    Debug,
+    Deserialize,
+    Serialize,
+    PartialEq,
+    Clone,
+    strum_macros::EnumString,
+    strum_macros::ToString,
+)]
 pub enum Device {
     // Default device if not specify
     CPU,
