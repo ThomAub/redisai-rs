@@ -2,9 +2,15 @@
 use crate::{Backend, Device, RedisAIClient};
 use redis::RedisResult;
 
-use std::fs::File;
 use std::io::prelude::Read;
 use std::path::Path;
+
+#[cfg(feature = "tokio-comp")]
+use tokio::io::AsyncReadExt;
+
+#[cfg(feature = "async-std-comp")]
+use async_std::prelude::*;
+
 /// The Model metadata
 #[derive(Debug, PartialEq)]
 pub struct AIModelMeta {
@@ -62,14 +68,96 @@ pub struct AIModel {
 }
 
 impl AIModel {
+    /// Read a model file from a path
     pub fn new_from_file(meta: AIModelMeta, path: &Path) -> RedisResult<AIModel> {
-        let mut file = File::open(path)?;
+        let mut file = std::fs::File::open(path)?;
         let mut buffer = Vec::<u8>::new();
         file.read_to_end(&mut buffer).unwrap();
         Ok(AIModel { meta, blob: buffer })
     }
+    /// Async Read a model file from a path
+    #[cfg(feature = "tokio-comp")]
+    pub async fn new_from_file_tokio(meta: AIModelMeta, path: &Path) -> RedisResult<AIModel> {
+        let mut file = tokio::fs::File::open(path).await?;
+        let mut buffer = Vec::<u8>::new();
+        file.read_to_end(&mut buffer).await?;
+        Ok(AIModel { meta, blob: buffer })
+    }
+    /// Async Read a model file from a path
+    #[cfg(feature = "async-std-comp")]
+    pub async fn new_from_file_async_std(meta: AIModelMeta, path: &Path) -> RedisResult<AIModel> {
+        let mut file = async_std::fs::File::open(path).await?;
+        let mut buffer = Vec::<u8>::new();
+        file.read_to_end(&mut buffer).await?;
+        Ok(AIModel { meta, blob: buffer })
+    }
 }
+fn modelset_cmd_build(key: String, model: &AIModel) -> Vec<String> {
+    let mut args_command: Vec<String> = vec![key];
+    args_command.push(model.meta.backend.to_string());
+    args_command.push(model.meta.device.to_string());
 
+    if let Some(tag) = &model.meta.tag {
+        args_command.append(&mut vec!["TAG".to_string(), tag.to_string()]);
+    }
+    // Handling the batchsize and the min_batchsize and the min_batch_timeout
+    match (
+        model.meta.batchsize,
+        model.meta.min_batchsize,
+        model.meta.min_batch_timeout,
+    ) {
+        (0, 0, 0) => {}
+        (0, 0, t) => {
+            panic!("MINBATCHTIMEOUT t={} should only be set where both BATCHSIZE and MINBATCHSIZE are greater than 0.", t)
+        }
+        (n, 0, 0) => {
+            args_command.append(&mut vec!["BATCHSIZE".to_string(), n.to_string()]);
+        }
+        (n, m, 0) if m > n => {
+            panic!(
+                "BATCHSIZE n={} should be greater than MINBATCHSIZE m={}",
+                n, m
+            )
+        }
+        (n, m, 0) => {
+            args_command.append(&mut vec!["BATCHSIZE".to_string(), n.to_string()]);
+            args_command.append(&mut vec!["MINBATCHSIZE".to_string(), m.to_string()]);
+        }
+        (n, m, t) if m > n => {
+            panic!(
+                    "Even with MINBATCHTIMEOUT t={}, BATCHSIZE n={} should be greater than MINBATCHSIZE m={}",
+                    t, n, m
+                )
+        }
+        (n, m, t) => {
+            args_command.append(&mut vec!["BATCHSIZE".to_string(), n.to_string()]);
+            args_command.append(&mut vec!["MINBATCHSIZE".to_string(), m.to_string()]);
+            args_command.append(&mut vec!["MINBATCHTIMEOUT".to_string(), t.to_string()]);
+        }
+    }
+
+    // Handling the inputs outputs only for only for TensorFlow models
+    // TODO: check for Tflite ?
+    match model.meta.backend {
+        Backend::TF | Backend::TFLITE => {
+            if let Some(inputs) = &model.meta.inputs {
+                let inputs_joined = inputs.join(" ");
+                args_command.append(&mut vec!["INPUTS".to_string(), inputs_joined]);
+            } else {
+                panic!("Trying to use a TF or TFlite model without setting INPUTS tensors")
+            }
+
+            if let Some(outputs) = &model.meta.outputs {
+                let outputs_joined = outputs.join(" ");
+                args_command.append(&mut vec!["INPUTS".to_string(), outputs_joined]);
+            } else {
+                panic!("Trying to use a TF or TFlite model without setting OUTPUTS tensors")
+            }
+        }
+        _ => {}
+    }
+    args_command
+}
 impl RedisAIClient {
     pub fn ai_modelset(
         &self,
@@ -77,97 +165,54 @@ impl RedisAIClient {
         key: String,
         model: AIModel,
     ) -> RedisResult<()> {
-        let backend_str = model.meta.backend.to_string();
-        let device_str = model.meta.device.to_string();
-
-        let mut debug_command = format!("AI.MODELSET {}", &key);
-        let mut args_command: Vec<String> = vec![];
-
-        if let Some(tag) = model.meta.tag {
-            debug_command = debug_command + " TAG " + &tag;
-            args_command.append(&mut vec!["TAG".to_string(), tag]);
-        }
-        // Handling the batchsize and the min_batchsize and the min_batch_timeout
-        match (
-            model.meta.batchsize,
-            model.meta.min_batchsize,
-            model.meta.min_batch_timeout,
-        ) {
-            (0, 0, 0) => {}
-            (0, 0, t) => {
-                panic!("MINBATCHTIMEOUT t={} should only be set where both BATCHSIZE and MINBATCHSIZE are greater than 0.", t)
-            }
-            (n, 0, 0) => {
-                debug_command = debug_command + " BATCHSIZE " + &n.to_string();
-                args_command.append(&mut vec!["BATCHSIZE".to_string(), n.to_string()]);
-            }
-            (n, m, 0) if m > n => {
-                panic!(
-                    "BATCHSIZE n={} should be greater than MINBATCHSIZE m={}",
-                    n, m
-                )
-            }
-            (n, m, 0) => {
-                debug_command = debug_command + " BATCHSIZE " + &n.to_string();
-                args_command.append(&mut vec!["BATCHSIZE".to_string(), n.to_string()]);
-
-                debug_command = debug_command + " MINBATCHSIZE " + &m.to_string();
-                args_command.append(&mut vec!["MINBATCHSIZE".to_string(), m.to_string()]);
-            }
-            (n, m, t) if m > n => {
-                panic!(
-                    "Even with MINBATCHTIMEOUT t={}, BATCHSIZE n={} should be greater than MINBATCHSIZE m={}",
-                    t, n, m
-                )
-            }
-            (n, m, t) => {
-                debug_command = debug_command + " BATCHSIZE " + &n.to_string();
-                args_command.append(&mut vec!["BATCHSIZE".to_string(), n.to_string()]);
-
-                debug_command = debug_command + " MINBATCHSIZE " + &m.to_string();
-                args_command.append(&mut vec!["MINBATCHSIZE".to_string(), m.to_string()]);
-
-                debug_command = debug_command + " MINBATCHTIMEOUT " + &t.to_string();
-                args_command.append(&mut vec!["MINBATCHTIMEOUT".to_string(), t.to_string()]);
-            }
-        }
-
-        // Handling the inputs outputs only for only for TensorFlow models
-        // TODO: check for Tflite ?
-        match model.meta.backend {
-            Backend::TF | Backend::TFLITE => {
-                if let Some(inputs) = model.meta.inputs {
-                    let inputs_joined = inputs.join(" ");
-                    debug_command = debug_command + " INPUTS " + &inputs_joined;
-                    args_command.append(&mut vec!["INPUTS".to_string(), inputs_joined]);
-                } else {
-                    panic!("Trying to use a TF or TFlite model without setting INPUTS tensors")
-                }
-
-                if let Some(outputs) = model.meta.outputs {
-                    let outputs_joined = outputs.join(" ");
-                    debug_command = debug_command + " INPUTS " + &outputs_joined;
-                    args_command.append(&mut vec!["INPUTS".to_string(), outputs_joined]);
-                } else {
-                    panic!("Trying to use a TF or TFlite model without setting OUTPUTS tensors")
-                }
-            }
-            _ => {}
-        }
-
+        let args = modelset_cmd_build(key, &model);
         if self.debug {
-            println!("{} BLOB ", &debug_command); //{:#04X?} &model.blob
+            format!("AI.MODELSET {:?}", &args);
         }
-
         redis::cmd("AI.MODELSET")
-            .arg(key)
-            .arg(backend_str)
-            .arg(device_str)
-            .arg(args_command)
+            .arg(args)
             .arg("BLOB")
             .arg(model.blob)
             .query(con)?;
         Ok(())
+    }
+    pub fn ai_modelscan(&self, con: &mut redis::Connection) -> RedisResult<Vec<Vec<String>>> {
+        if self.debug {
+            format!("AI._MODELSCAN");
+        }
+        let models: Vec<Vec<String>> = redis::cmd("AI._MODELSCAN").query(con)?;
+        Ok(models)
+    }
+}
+#[cfg(feature = "aio")]
+impl RedisAIClient {
+    pub async fn ai_modelset_async(
+        &self,
+        con: &mut redis::aio::Connection,
+        key: String,
+        model: AIModel,
+    ) -> RedisResult<()> {
+        let args = modelset_cmd_build(key, &model);
+        if self.debug {
+            format!("AI.MODELSET {:?}", &args);
+        }
+        redis::cmd("AI.MODELSET")
+            .arg(args)
+            .arg("BLOB")
+            .arg(model.blob)
+            .query_async(con)
+            .await?;
+        Ok(())
+    }
+    pub async fn ai_modelscan_async(
+        &self,
+        con: &mut redis::aio::Connection,
+    ) -> RedisResult<Vec<String>> {
+        if self.debug {
+            format!("AI._MODELSCAN");
+        }
+        let models: Vec<String> = redis::cmd("AI._MODELSCAN").query_async(con).await?;
+        Ok(models)
     }
 }
 
@@ -290,5 +335,31 @@ mod tests {
         let ai_model = AIModel::new_from_file(ai_modelmeta, &model_path).unwrap();
 
         aiclient.ai_modelset(&mut con, key, ai_model).unwrap();
+    }
+    #[test]
+    fn ai_model_scan() {
+        let aiclient: RedisAIClient = RedisAIClient { debug: true };
+        let client = redis::Client::open("redis://127.0.0.1/").unwrap();
+        let mut con = client.get_connection().unwrap();
+
+        let model_path = Path::new("tests/testdata/findsquare.onnx");
+
+        let ai_modelmeta_1 = AIModelMeta::default();
+        let key_1 = "model:scan:1".to_string();
+
+        let ai_model_1 = AIModel::new_from_file(ai_modelmeta_1, &model_path).unwrap();
+        aiclient.ai_modelset(&mut con, key_1, ai_model_1).unwrap();
+
+        let ai_modelmeta = AIModelMeta {
+            tag: Some("V100".to_string()),
+            ..Default::default()
+        };
+        let ai_model_1 = AIModel::new_from_file(ai_modelmeta, &model_path).unwrap();
+        let key_2 = "model:scan:2".to_string();
+
+        aiclient.ai_modelset(&mut con, key_2, ai_model_1).unwrap();
+
+        let _models = aiclient.ai_modelscan(&mut con).unwrap();
+        // assert_eq!(models, vec!["model:scan:1", "", "model:scan:2", "v100"])
     }
 }

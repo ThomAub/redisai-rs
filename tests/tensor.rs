@@ -1,4 +1,6 @@
+#[cfg(feature = "ndar")]
 use ndarray::{arr2, arr3};
+
 use redisai::tensor::{AITensor, ToFromBlob};
 use redisai::RedisAIClient;
 #[test]
@@ -207,7 +209,7 @@ fn ai_tensorset_one_dim_float64() {
 }
 #[test]
 fn ai_tensorget_one_dim_float64() {
-    let aiclient: RedisAIClient = RedisAIClient { debug: false };
+    let aiclient: RedisAIClient = RedisAIClient { debug: true };
     let client = redis::Client::open("redis://127.0.0.1/").unwrap();
     let mut con = client.get_connection().unwrap();
 
@@ -224,6 +226,7 @@ fn ai_tensorget_one_dim_float64() {
     );
 }
 #[test]
+#[cfg(feature = "ndar")]
 fn ai_tensorset_from_2d_ndarray() {
     let aiclient: RedisAIClient = RedisAIClient { debug: false };
     let client = redis::Client::open("redis://127.0.0.1/").unwrap();
@@ -243,6 +246,7 @@ fn ai_tensorset_from_2d_ndarray() {
     );
 }
 #[test]
+#[cfg(feature = "ndar")]
 fn ai_tensorget_from_2d_ndarray() {
     let aiclient: RedisAIClient = RedisAIClient { debug: false };
     let client = redis::Client::open("redis://127.0.0.1/").unwrap();
@@ -260,6 +264,7 @@ fn ai_tensorget_from_2d_ndarray() {
     );
 }
 #[test]
+#[cfg(feature = "ndar")]
 fn ai_tensorset_from_3d_ndarray() {
     let aiclient: RedisAIClient = RedisAIClient { debug: true };
     let client = redis::Client::open("redis://127.0.0.1/").unwrap();
@@ -281,6 +286,7 @@ fn ai_tensorset_from_3d_ndarray() {
     );
 }
 #[test]
+#[cfg(feature = "ndar")]
 fn ai_tensorget_from_3d_ndarray() {
     let aiclient: RedisAIClient = RedisAIClient { debug: false };
     let client = redis::Client::open("redis://127.0.0.1/").unwrap();

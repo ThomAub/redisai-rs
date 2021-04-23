@@ -48,32 +48,56 @@ impl FromRedisValue for AIInfo {
         })
     }
 }
-
+fn infoget_cmd_build(key: Option<String>) -> Vec<String> {
+    let mut args_command: Vec<String> = vec![];
+    if let Some(key) = key {
+        args_command.push(key);
+    }
+    args_command
+}
 impl RedisAIClient {
     pub fn ai_infoget(
         &self,
         con: &mut redis::Connection,
         key: Option<String>,
     ) -> RedisResult<AIInfo> {
-        // TODO: Should debug be a macro like the py decorator ?
-        let info: AIInfo = match key {
-            Some(key) => {
-                if self.debug {
-                    println!("RedisAI module running: AI.INFO with the key {}", key)
-                }
-                redis::cmd("AI.INFO").arg(key).query(con)?
-            }
-            _ => {
-                if self.debug {
-                    println!("RedisAI module running: AI.INFO")
-                }
-                redis::cmd("AI.INFO").arg(key).query(con)?
-            }
-        };
+        let args = infoget_cmd_build(key);
+        if self.debug {
+            println!("RedisAI module running: AI.INFO {:?}", args)
+        }
+        let info: AIInfo = redis::cmd("AI.INFO").arg(args).query(con)?;
         Ok(info)
     }
     pub fn ai_inforeset(&self, con: &mut redis::Connection, key: String) -> RedisResult<()> {
         redis::cmd("AI.INFO").arg(key).arg("RESETSTAT").query(con)?;
+        Ok(())
+    }
+}
+
+#[cfg(feature = "aio")]
+impl RedisAIClient {
+    pub async fn ai_infoget_async(
+        &self,
+        con: &mut redis::aio::Connection,
+        key: Option<String>,
+    ) -> RedisResult<AIInfo> {
+        let args = infoget_cmd_build(key);
+        if self.debug {
+            println!("RedisAI module running: AI.INFO {:?}", args)
+        }
+        let info: AIInfo = redis::cmd("AI.INFO").arg(args).query_async(con).await?;
+        Ok(info)
+    }
+    pub async fn ai_inforeset_async(
+        &self,
+        con: &mut redis::aio::Connection,
+        key: String,
+    ) -> RedisResult<()> {
+        redis::cmd("AI.INFO")
+            .arg(key)
+            .arg("RESETSTAT")
+            .query_async(con)
+            .await?;
         Ok(())
     }
 }
