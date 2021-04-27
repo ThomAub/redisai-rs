@@ -141,21 +141,37 @@ fn modelset_cmd_build(key: String, model: &AIModel) -> Vec<String> {
     match model.meta.backend {
         Backend::TF | Backend::TFLITE => {
             if let Some(inputs) = &model.meta.inputs {
-                let inputs_joined = inputs.join(" ");
-                args_command.append(&mut vec!["INPUTS".to_string(), inputs_joined]);
+                //let inputs_joined = inputs.join(" ");
+                args_command.push("INPUTS".to_string()); //, inputs_joined]);
+                args_command.append(&mut inputs.to_owned());
             } else {
                 panic!("Trying to use a TF or TFlite model without setting INPUTS tensors")
             }
 
             if let Some(outputs) = &model.meta.outputs {
-                let outputs_joined = outputs.join(" ");
-                args_command.append(&mut vec!["INPUTS".to_string(), outputs_joined]);
+                args_command.push("OUTPUTS".to_string()); //, inputs_joined]);
+                args_command.append(&mut outputs.to_owned());
             } else {
                 panic!("Trying to use a TF or TFlite model without setting OUTPUTS tensors")
             }
         }
         _ => {}
     }
+    args_command
+}
+fn modelrun_cmd_build(
+    key: String,
+    timeout: i64,
+    inputs: Vec<String>,
+    outputs: Vec<String>,
+) -> Vec<String> {
+    let mut args_command: Vec<String> = vec![key];
+    args_command.push("TIMEOUT".to_string());
+    args_command.push(timeout.to_string());
+    args_command.push("INPUTS".to_string());
+    args_command.append(&mut inputs.clone());
+    args_command.push("OUTPUTS".to_string());
+    args_command.append(&mut outputs.clone());
     args_command
 }
 impl RedisAIClient {
@@ -182,6 +198,29 @@ impl RedisAIClient {
         }
         let models: Vec<Vec<String>> = redis::cmd("AI._MODELSCAN").query(con)?;
         Ok(models)
+    }
+    pub fn ai_modeldel(&self, con: &mut redis::Connection, key: String) -> RedisResult<()> {
+        if self.debug {
+            format!("AI.MODELDEL {}", key);
+        }
+        redis::cmd("AI.MODELDEL").arg(key).query(con)?;
+        Ok(())
+    }
+    pub fn ai_modelrun(
+        &self,
+        con: &mut redis::Connection,
+        key: String,
+        timeout: i64,
+        inputs: Vec<String>,
+        outputs: Vec<String>,
+    ) -> RedisResult<()> {
+        let args_command = modelrun_cmd_build(key, timeout, inputs, outputs);
+        dbg!(&args_command);
+        if self.debug {
+            format!("AI.MODELRUN {:?}", args_command);
+        }
+        redis::cmd("AI.MODELRUN").arg(args_command).query(con)?;
+        Ok(())
     }
 }
 #[cfg(feature = "aio")]
@@ -213,6 +252,35 @@ impl RedisAIClient {
         }
         let models: Vec<Vec<String>> = redis::cmd("AI._MODELSCAN").query_async(con).await?;
         Ok(models)
+    }
+    pub async fn ai_modeldel_async(
+        &self,
+        con: &mut redis::aio::Connection,
+        key: String,
+    ) -> RedisResult<()> {
+        if self.debug {
+            format!("AI.MODELDEL {}", key);
+        }
+        redis::cmd("AI.MODELDEL").arg(key).query_async(con).await?;
+        Ok(())
+    }
+    pub async fn ai_modelrun_async(
+        &self,
+        con: &mut redis::aio::Connection,
+        key: String,
+        timeout: i64,
+        inputs: Vec<String>,
+        outputs: Vec<String>,
+    ) -> RedisResult<()> {
+        let args_command = modelrun_cmd_build(key, timeout, inputs, outputs);
+        if self.debug {
+            format!("AI.MODELRUN {:?}", args_command);
+        }
+        redis::cmd("AI.MODELRUN")
+            .arg(args_command)
+            .query_async(con)
+            .await?;
+        Ok(())
     }
 }
 
@@ -361,5 +429,67 @@ mod tests {
 
         let _models = aiclient.ai_modelscan(&mut con).unwrap();
         // assert_eq!(models, vec!["model:scan:1", "", "model:scan:2", "v100"])
+    }
+    #[test]
+    fn ai_model_run() {
+        use crate::tensor::{AITensor, ToFromBlob};
+
+        let aiclient: RedisAIClient = RedisAIClient { debug: true };
+        let client = redis::Client::open("redis://127.0.0.1/").unwrap();
+        let mut con = client.get_connection().unwrap();
+
+        let model_path = Path::new("tests/testdata/graph.pb");
+        //let model_path = Path::new("tests/testdata/pt-minimal.pt");
+
+        let ai_modelmeta = AIModelMeta {
+            inputs: Some(vec!["a".to_string(), "b".to_string()]),
+            outputs: Some(vec!["mul".to_string()]),
+            backend: Backend::TF,
+            tag: Some("v1.0".to_string()),
+            ..Default::default()
+        };
+        let key_1 = "model:tf:run:1".to_string();
+
+        let ai_model = AIModel::new_from_file(ai_modelmeta, &model_path).unwrap();
+        aiclient
+            .ai_modelset(&mut con, key_1.clone(), ai_model)
+            .unwrap();
+
+        let input_a_key = "a".to_string();
+        let tensor_data: Vec<f32> = vec![7., 3.];
+        let shape: [usize; 1] = [2];
+        let a_tensor: AITensor<f32, 1> = AITensor::new(shape, tensor_data.to_blob());
+
+        let input_b_key = "b".to_string();
+        let tensor_data: Vec<f32> = vec![3., 7.];
+        let shape: [usize; 1] = [2];
+        let b_tensor: AITensor<f32, 1> = AITensor::new(shape, tensor_data.to_blob());
+
+        aiclient
+            .ai_tensorset(&mut con, input_a_key.clone(), a_tensor)
+            .unwrap();
+        aiclient
+            .ai_tensorset(&mut con, input_b_key.clone(), b_tensor)
+            .unwrap();
+
+        aiclient
+            .ai_modelrun(
+                &mut con,
+                key_1.clone(),
+                20000000,
+                vec!["a".to_string(), "b".to_string()],
+                vec!["mul".to_string()],
+            )
+            .unwrap();
+
+        let ai_tensor: AITensor<f32, 1> = aiclient
+            .ai_tensorget(&mut con, "mul".to_string(), false)
+            .unwrap();
+
+        let tensor_data: Vec<f32> = vec![21., 21.];
+        let shape: [usize; 1] = [2];
+        let expected_ai_tensor: AITensor<f32, 1> = AITensor::new(shape, tensor_data.to_blob());
+
+        assert_eq!(expected_ai_tensor, ai_tensor)
     }
 }
