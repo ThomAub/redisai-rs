@@ -23,7 +23,7 @@ macro_rules! impl_tofrom_blob_vec {
         impl ToFromBlob for Vec<$inner_type> {
             fn to_blob(self) -> Vec<u8> {
                 self.iter()
-                    .flat_map(|elem| { elem.to_be_bytes().to_vec().into_iter() }.into_iter())
+                    .flat_map(|elem| { elem.to_ne_bytes().to_vec().into_iter() }.into_iter())
                     .collect::<Vec<u8>>()
             }
             fn from_blob(blob: &[u8], _shape: &[usize]) -> Self {
@@ -32,7 +32,7 @@ macro_rules! impl_tofrom_blob_vec {
                     .map(|bytes| {
                         let mut arr = [0u8; SIZE];
                         arr.copy_from_slice(&bytes[0..SIZE]);
-                        <$inner_type>::from_be_bytes(arr)
+                        <$inner_type>::from_ne_bytes(arr)
                     })
                     .collect()
             }
@@ -438,7 +438,7 @@ mod tests {
                 shape: [4],
                 phantom: PhantomData,
             },
-            blob: vec![0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 255],
+            blob: vec![1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 255, 0, 0, 0],
         };
 
         assert_eq!(expected_tensor, ai_tensor)
@@ -456,8 +456,8 @@ mod tests {
                 phantom: PhantomData,
             },
             blob: vec![
-                63, 240, 0, 0, 0, 0, 0, 0, 64, 0, 0, 0, 0, 0, 0, 0, 64, 8, 0, 0, 0, 0, 0, 0, 64,
-                111, 224, 0, 0, 0, 0, 0,
+                0, 0, 0, 0, 0, 0, 240, 63, 0, 0, 0, 0, 0, 0, 0, 64, 0, 0, 0, 0, 0, 0, 8, 64, 0, 0,
+                0, 0, 0, 224, 111, 64,
             ],
         };
 

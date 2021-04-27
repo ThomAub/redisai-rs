@@ -142,7 +142,7 @@ fn ai_tensorset_one_dim_float32() {
 }
 #[test]
 fn ai_tensorget_one_dim_float32() {
-    let aiclient: RedisAIClient = RedisAIClient { debug: false };
+    let aiclient: RedisAIClient = RedisAIClient { debug: true };
     let client = redis::Client::open("redis://127.0.0.1/").unwrap();
     let mut con = client.get_connection().unwrap();
 
@@ -152,11 +152,8 @@ fn ai_tensorget_one_dim_float32() {
 
     let key = "one_dim_f32_tensor_get".to_string();
     let _ = aiclient.ai_tensorset(&mut con, key.clone(), expected_ai_tensor.clone());
-
-    assert_eq!(
-        Ok(expected_ai_tensor),
-        aiclient.ai_tensorget(&mut con, key, false)
-    );
+    let found_tensor: AITensor<f32, 1> = aiclient.ai_tensorget(&mut con, key, false).unwrap();
+    assert_eq!(expected_ai_tensor, found_tensor);
 }
 #[test]
 fn ai_tensorset_three_dim_float32() {
