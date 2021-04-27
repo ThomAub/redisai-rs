@@ -11,11 +11,11 @@ alongside them.
 
 ## [AI.MODEL](https://oss.redislabs.com/redisai/commands/#aimodelset]
 
-- [ ] AI.MODELSET (``)
-- [ ] AI.MODELGET (``)
-- [ ] AI.MODELDEL (``)
-- [ ] AI.MODELRUN (``)
-- [ ] AI._MODELSCAN(``)
+- [X] AI.MODELSET (``)
+- [X] AI.MODELGET (``)
+- [X] AI.MODELDEL (``)
+- [X] AI.MODELRUN (``)
+- [X] AI._MODELSCAN(``)
 
 ## [AI.SCRIPT](https://oss.redislabs.com/redisai/commands/#aiscriptset)
 

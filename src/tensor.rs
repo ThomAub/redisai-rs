@@ -209,7 +209,7 @@ where
     }
 }
 
-fn modelset_cmd_build<T, const S: usize>(key: String, tensor: &AITensor<T, S>) -> Vec<String> {
+fn tensorset_cmd_build<T, const S: usize>(key: String, tensor: &AITensor<T, S>) -> Vec<String> {
     let mut args_command: Vec<String> = vec![key];
     args_command.push(tensor.meta.dtype.to_string());
     args_command.append(
@@ -222,7 +222,7 @@ fn modelset_cmd_build<T, const S: usize>(key: String, tensor: &AITensor<T, S>) -
     );
     args_command
 }
-fn modelget_cmd_build(key: String, meta_only: bool) -> Vec<String> {
+fn tensorget_cmd_build(key: String, meta_only: bool) -> Vec<String> {
     let mut args_command: Vec<String> = vec![key, "META".to_string()];
     if meta_only {
     } else {
@@ -271,7 +271,7 @@ impl RedisAIClient {
         // Maybe possible with just `to_be_bytes` and no custom Trait but don't know how.
         // TODO: Follow-up on std::num::Trait https://github.com/rust-num/num-traits/pull/103/
     {
-        let args = modelset_cmd_build(key, &tensor);
+        let args = tensorset_cmd_build(key, &tensor);
         if self.debug {
             println!("AI.TENSORSET {:?} BLOB {:#04X?}", args, &tensor.blob);
         }
@@ -318,7 +318,7 @@ impl RedisAIClient {
         T: Debug,
         Vec<T>: ToFromBlob,
     {
-        let args = modelget_cmd_build(key, meta_only);
+        let args = tensorget_cmd_build(key, meta_only);
         let tensor = if meta_only {
             if self.debug {
                 println!("AI.TENSORGET {:?}", args)
@@ -344,7 +344,7 @@ impl RedisAIClient {
     where
         T: Debug,
     {
-        let args = modelset_cmd_build(key, &tensor);
+        let args = tensorset_cmd_build(key, &tensor);
         if self.debug {
             println!("AI.TENSORSET {:?} BLOB {:#04X?}", args, &tensor.blob);
         }
@@ -366,7 +366,7 @@ impl RedisAIClient {
         T: Debug,
         Vec<T>: ToFromBlob,
     {
-        let args = modelget_cmd_build(key, meta_only);
+        let args = tensorget_cmd_build(key, meta_only);
         let tensor = if meta_only {
             if self.debug {
                 println!("AI.TENSORGET {:?}", args)

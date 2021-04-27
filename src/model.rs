@@ -1,9 +1,10 @@
 /// Documentation for the model api
 use crate::{Backend, Device, RedisAIClient};
-use redis::RedisResult;
+use redis::{FromRedisValue, RedisResult, Value};
 
 use std::io::prelude::Read;
 use std::path::Path;
+use std::str::FromStr;
 
 #[cfg(feature = "tokio-comp")]
 use tokio::io::AsyncReadExt;
@@ -12,7 +13,7 @@ use tokio::io::AsyncReadExt;
 use async_std::prelude::*;
 
 /// The Model metadata
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct AIModelMeta {
     pub backend: Backend,
     /// The type of device that will execute the model
@@ -59,7 +60,7 @@ impl Default for AIModelMeta {
     }
 }
 /// The Model represents a computation graph by one of the supported DL/ML framework backends
-#[derive(Debug, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct AIModel {
     /// The Model metadata
     pub meta: AIModelMeta,
@@ -92,6 +93,103 @@ impl AIModel {
         Ok(AIModel { meta, blob: buffer })
     }
 }
+impl FromRedisValue for AIModelMeta {
+    fn from_redis_value(v: &Value) -> RedisResult<Self> {
+        let mut it = v.as_sequence().unwrap().iter();
+        let meta: AIModelMeta = match (
+            it.next(),
+            it.next(),
+            it.next(),
+            it.next(),
+            it.next(),
+            it.next(),
+            it.next(),
+            it.next(),
+            it.next(),
+            it.next(),
+            it.next(),
+            it.next(),
+            it.next(),
+            it.next(),
+        ) {
+            (
+                _, //Some(backend_field),
+                Some(backend),
+                _, //Some(device_field),
+                Some(device),
+                _, //Some(tag_field),
+                Some(tag),
+                _, //Some(batchsize_field),
+                Some(batchsize),
+                _, //Some(minbatchsize_field),
+                Some(minbatchsize),
+                _, //Some(inputs_field),
+                Some(inputs),
+                _, //Some(outputs_field),
+                Some(outputs),
+            ) => {
+                let backend = Backend::from_str(&String::from_redis_value(backend)?).unwrap();
+                let (inputs, outputs) = match backend {
+                    Backend::TF => (
+                        Vec::<String>::from_redis_value(inputs).ok(),
+                        Vec::<String>::from_redis_value(outputs).ok(),
+                    ),
+                    _ => (None, None),
+                };
+                let mut tag = String::from_redis_value(tag).ok();
+                if tag == Some("".to_string()) {
+                    tag = None
+                }
+
+                AIModelMeta {
+                    backend,
+                    device: Device::from_str(&String::from_redis_value(device)?).unwrap(),
+                    tag,
+                    batchsize: isize::from_redis_value(batchsize)?,
+                    min_batchsize: isize::from_redis_value(minbatchsize)?,
+                    min_batch_timeout: 0, //TODO: NOT in META ?
+                    inputs: inputs,
+                    outputs: outputs,
+                }
+            }
+            _ => {
+                return Err(redis::RedisError::from((
+                    redis::ErrorKind::TypeError,
+                    "Cannot convert AITensorMeta field to some string",
+                )))
+            }
+        };
+        Ok(meta)
+    }
+}
+impl FromRedisValue for AIModel {
+    fn from_redis_value(v: &Value) -> RedisResult<Self> {
+        let it = v.as_sequence().unwrap().iter();
+        let meta_part_iter = it.clone().take(4);
+        let meta_part = Value::Bulk(
+            meta_part_iter
+                .map(|elem| elem.clone())
+                .collect::<Vec<Value>>(),
+        );
+        let meta: AIModelMeta = AIModelMeta::from_redis_value(&meta_part).unwrap();
+
+        let mut blob_part_iter = it.skip(4);
+        let blob = match (blob_part_iter.next(), blob_part_iter.next()) {
+            (Some(_blob_field), Some(blob)) => {
+                let blob_bytes = Vec::<u8>::from_redis_value(blob).unwrap();
+                blob_bytes
+            }
+            _ => {
+                return Err(redis::RedisError::from((
+                    redis::ErrorKind::TypeError,
+                    "Cannot convert AIModel blob field to some string",
+                )))
+            }
+        };
+        Ok(Self { meta, blob })
+    }
+}
+
 fn modelset_cmd_build(key: String, model: &AIModel) -> Vec<String> {
     let mut args_command: Vec<String> = vec![key];
     args_command.push(model.meta.backend.to_string());
@@ -159,6 +257,14 @@ fn modelset_cmd_build(key: String, model: &AIModel) -> Vec<String> {
     }
     args_command
 }
+fn modelget_cmd_build(key: String, meta_only: bool) -> Vec<String> {
+    let mut args_command: Vec<String> = vec![key, "META".to_string()];
+    if meta_only {
+    } else {
+        args_command.push("BLOB".to_string());
+    };
+    args_command
+}
 fn modelrun_cmd_build(
     key: String,
     timeout: i64,
@@ -183,14 +289,33 @@ impl RedisAIClient {
     ) -> RedisResult<()> {
         let args = modelset_cmd_build(key, &model);
         if self.debug {
-            format!("AI.MODELSET {:?}", &args);
+            format!("AI.MODELSTORE {:?}", &args);
         }
-        redis::cmd("AI.MODELSET")
+        redis::cmd("AI.MODELSTORE")
             .arg(args)
             .arg("BLOB")
             .arg(model.blob)
             .query(con)?;
         Ok(())
+    }
+    pub fn ai_modelget(
+        &self,
+        con: &mut redis::Connection,
+        key: String,
+        meta_only: bool,
+    ) -> RedisResult<AIModel> {
+        let args = modelget_cmd_build(key, meta_only);
+        let model = if meta_only {
+            if self.debug {
+                println!("AI.MODELGET {:?}", args)
+            }
+            let meta: AIModelMeta = redis::cmd("AI.MODELGET").arg(args).query(con)?;
+            AIModel { meta, blob: vec![] }
+        } else {
+            let model: AIModel = redis::cmd("AI.MODELGET").arg(args).query(con)?;
+            model
+        };
+        Ok(model)
     }
     pub fn ai_modelscan(&self, con: &mut redis::Connection) -> RedisResult<Vec<Vec<String>>> {
         if self.debug {
@@ -429,6 +554,27 @@ mod tests {
 
         let _models = aiclient.ai_modelscan(&mut con).unwrap();
         // assert_eq!(models, vec!["model:scan:1", "", "model:scan:2", "v100"])
+    }
+    #[test]
+    fn ai_model_get() {
+        let aiclient: RedisAIClient = RedisAIClient { debug: true };
+        let client = redis::Client::open("redis://127.0.0.1/").unwrap();
+        let mut con = client.get_connection().unwrap();
+
+        let model_path = Path::new("tests/testdata/findsquare.onnx");
+        let ai_modelmeta_1 = AIModelMeta::default();
+        let key_1 = "model:get:1".to_string();
+        let ai_model_1 = AIModel::new_from_file(ai_modelmeta_1.clone(), &model_path).unwrap();
+        aiclient
+            .ai_modelset(&mut con, key_1.clone(), ai_model_1.clone())
+            .unwrap();
+        let model = aiclient.ai_modelget(&mut con, key_1.clone(), true).unwrap();
+        dbg!(&model);
+        let ai_model_expected = AIModel {
+            meta: ai_modelmeta_1.clone(),
+            blob: vec![],
+        };
+        assert_eq!(model, ai_model_expected)
     }
     #[test]
     fn ai_model_run() {
